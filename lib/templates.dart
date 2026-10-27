@@ -24,8 +24,8 @@ const routineTemplates = <RoutineTemplate>[
   ]),
   RoutineTemplate('Çalışma günü', '💼', [
     TemplateEntry('İş', 2, 9 * 60, 240),
-    TemplateEntry('Öğle yemeği', 4, 13 * 60, 60),
-    TemplateEntry('İş', 2, 14 * 60, 240),
+    TemplateEntry('Öğle yemeği', 4, 12 * 60, 60),
+    TemplateEntry('İş', 2, 13 * 60, 240),
   ]),
   RoutineTemplate('Öğrenci', '🎓', [
     TemplateEntry('Ders', 1, 9 * 60, 180),
