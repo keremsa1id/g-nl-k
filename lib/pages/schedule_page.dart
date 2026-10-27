@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../notifications.dart';
 import '../storage.dart';
+import '../theme.dart';
+import '../widgets.dart';
 import 'item_editor.dart';
 
 class SchedulePage extends StatefulWidget {
@@ -13,7 +15,7 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
-  static const double slotHeight = 60;
+  static const double slotHeight = 64;
   final store = Store.instance;
   DateTime _day = dateOnly(DateTime.now());
   late final ScrollController _scroll;
@@ -103,82 +105,196 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final items = _dayItems;
     final now = DateTime.now();
     final isToday = sameDay(_day, now);
     final nowSlot = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Program'),
-        actions: [
-          if (!isToday)
-            IconButton(
-              tooltip: 'Bugün',
-              icon: const Icon(Icons.today),
-              onPressed: () => setState(() => _day = dateOnly(DateTime.now())),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            PageHeader(
+              eyebrow: '${trMonths[_day.month - 1]} ${_day.year}',
+              title: isToday ? 'Bugün' : '${_day.day} ${trWeekdays[_day.weekday - 1]}',
+              onTitleTap: _pickDate,
+              actions: [
+                if (!isToday)
+                  SquareIconButton(
+                    tooltip: 'Bugün',
+                    icon: Icons.today_rounded,
+                    onPressed: () => setState(() => _day = dateOnly(DateTime.now())),
+                  ),
+                SquareIconButton(
+                  tooltip: 'Tüm kayıtlar',
+                  icon: Icons.view_agenda_outlined,
+                  onPressed: _showAll,
+                ),
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface2,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (v) {
+                      if (v == 'test') Notifier.showTest();
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'test', child: Text('Bildirimi test et')),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          IconButton(
-            tooltip: 'Tüm kayıtlar',
-            icon: const Icon(Icons.list_alt),
-            onPressed: _showAll,
-          ),
-          PopupMenuButton<String>(
-            onSelected: (v) {
-              if (v == 'test') Notifier.showTest();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'test', child: Text('Bildirimi test et')),
-            ],
-          ),
-        ],
+            _weekStrip(context, now),
+            _summary(context, items, isToday, now),
+            Expanded(
+              child: ListView.builder(
+                controller: _scroll,
+                padding: const EdgeInsets.only(bottom: 96),
+                itemCount: 48,
+                itemBuilder: (ctx, slot) =>
+                    _slot(ctx, slot, items, isToday && slot == nowSlot),
+              ),
+            ),
+          ],
+        ),
       ),
-      body: Column(
-        children: [
-          Material(
-            color: scheme.surfaceContainer,
-            child: Row(
-              children: [
-                IconButton(icon: const Icon(Icons.chevron_left), onPressed: () => _shift(-1)),
-                Expanded(
-                  child: InkWell(
-                    onTap: _pickDate,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openEditor(),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Ekle', style: TextStyle(fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
+  /// Seçili günün haftası; sağa/sola kaydırınca hafta değişir.
+  Widget _weekStrip(BuildContext context, DateTime now) {
+    final scheme = Theme.of(context).colorScheme;
+    final monday = DateTime(_day.year, _day.month, _day.day - (_day.weekday - 1));
+    return GestureDetector(
+      onHorizontalDragEnd: (d) {
+        final v = d.primaryVelocity ?? 0;
+        if (v < -200) _shift(7);
+        if (v > 200) _shift(-7);
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        child: Row(
+          children: [
+            for (var i = 0; i < 7; i++)
+              Builder(builder: (_) {
+                final d = DateTime(monday.year, monday.month, monday.day + i);
+                final selected = sameDay(d, _day);
+                final today = sameDay(d, now);
+                final hasItems = store.items.any((it) => it.occursOn(d));
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _day = d),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOutCubic,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: selected ? AppTheme.red : AppTheme.surface1,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: selected
+                              ? AppTheme.red
+                              : today
+                                  ? AppTheme.red.withValues(alpha: 0.7)
+                                  : AppTheme.border,
+                        ),
+                        boxShadow: selected
+                            ? [BoxShadow(color: AppTheme.red.withValues(alpha: 0.4), blurRadius: 14)]
+                            : null,
+                      ),
                       child: Column(
                         children: [
-                          Text(fmtDate(_day),
-                              style: Theme.of(context).textTheme.titleMedium,
-                              textAlign: TextAlign.center),
-                          Text(
-                            '${isToday ? 'Bugün · ' : ''}${items.length} etkinlik',
-                            style: Theme.of(context).textTheme.bodySmall,
+                          Text(trWeekdaysShort[i],
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: selected ? Colors.white70 : scheme.onSurfaceVariant,
+                              )),
+                          const SizedBox(height: 4),
+                          Text('${d.day}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: selected ? Colors.white : scheme.onSurface,
+                              )),
+                          const SizedBox(height: 4),
+                          Container(
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: !hasItems
+                                  ? Colors.transparent
+                                  : selected
+                                      ? Colors.white
+                                      : AppTheme.redBright,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-                IconButton(icon: const Icon(Icons.chevron_right), onPressed: () => _shift(1)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              controller: _scroll,
-              padding: const EdgeInsets.only(bottom: 88),
-              itemCount: 48,
-              itemBuilder: (ctx, slot) =>
-                  _slot(ctx, slot, items, isToday && slot == nowSlot),
-            ),
-          ),
-        ],
+                );
+              }),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(),
-        icon: const Icon(Icons.add),
-        label: const Text('Ekle'),
+    );
+  }
+
+  /// Gün özeti: etkinlik sayısı ve sıradaki etkinlik.
+  Widget _summary(BuildContext context, List<ScheduleItem> items, bool isToday, DateTime now) {
+    final theme = Theme.of(context);
+    final nowMin = now.hour * 60 + now.minute;
+    final next = isToday
+        ? items.where((i) => i.startMinutes >= nowMin).firstOrNull
+        : items.firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+      child: Row(
+        children: [
+          Text('${items.length} etkinlik',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(width: 10),
+          if (next != null)
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppTheme.red.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${isToday ? 'Sıradaki' : 'İlk'}: ${next.title} · ${fmtMinutes(next.startMinutes)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: AppTheme.redBright, fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+            )
+          else
+            Flexible(
+              child: Text('Boş bir saate dokunarak ekle',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            ),
+        ],
       ),
     );
   }
@@ -199,41 +315,57 @@ class _SchedulePageState extends State<SchedulePage> {
       content = _ongoing(context, ongoing);
     } else {
       content = InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         onTap: () => _openEditor(startMinutes: minute),
-        child: const SizedBox(height: slotHeight - 8),
+        child: SizedBox(
+          height: slotHeight - 8,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              height: 1,
+              color: scheme.outlineVariant.withValues(alpha: isHour ? 0.9 : 0.35),
+            ),
+          ),
+        ),
       );
     }
 
     return Container(
       constraints: const BoxConstraints(minHeight: slotHeight),
-      decoration: BoxDecoration(
-        color: isNow ? scheme.primaryContainer.withValues(alpha: 0.35) : null,
-        border: Border(
-          top: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: isHour ? 0.8 : 0.3),
-          ),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 64,
+            width: 58,
             child: Padding(
-              padding: const EdgeInsets.only(top: 6, left: 12),
-              child: Text(
-                fmtMinutes(minute),
-                style: TextStyle(
-                  fontWeight: isHour ? FontWeight.w600 : FontWeight.w400,
-                  color: isHour ? scheme.onSurface : scheme.onSurfaceVariant,
-                ),
-              ),
+              padding: const EdgeInsets.only(top: 22, left: 4),
+              child: isNow
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.red,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(fmtMinutes(minute),
+                          style: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                    )
+                  : Text(
+                      fmtMinutes(minute),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isHour ? FontWeight.w700 : FontWeight.w400,
+                        color: isHour
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant.withValues(alpha: 0.6),
+                      ),
+                    ),
             ),
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(0, 4, 12, 4),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: content,
             ),
           ),
@@ -244,33 +376,72 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Widget _card(BuildContext context, ScheduleItem i) {
     final c = itemColors[i.colorIndex % itemColors.length];
-    return Card(
+    final theme = Theme.of(context);
+    return Container(
       margin: const EdgeInsets.only(bottom: 4),
-      color: c.withValues(alpha: 0.18),
-      clipBehavior: Clip.antiAlias,
-      elevation: 0,
-      child: InkWell(
-        onTap: () => _openEditor(existing: i),
-        onLongPress: () => _delete(i),
-        child: Container(
-          decoration: BoxDecoration(border: Border(left: BorderSide(color: c, width: 5))),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(i.title,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 2),
-                    Text('${i.timeLabel} · ${i.repeatLabel}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                  ],
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [c.withValues(alpha: 0.28), c.withValues(alpha: 0.08)],
+        ),
+        border: Border.all(color: c.withValues(alpha: 0.4)),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _openEditor(existing: i),
+          onLongPress: () => _delete(i),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: c,
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: [BoxShadow(color: c.withValues(alpha: 0.6), blurRadius: 8)],
+                  ),
                 ),
-              ),
-              if (i.notify) Icon(Icons.notifications_active, size: 18, color: c),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(i.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.schedule_rounded,
+                              size: 13, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text('${i.timeLabel} · ${i.repeatLabel}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (i.notify)
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: c.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.notifications_active_rounded, size: 16, color: c),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -281,18 +452,21 @@ class _SchedulePageState extends State<SchedulePage> {
     final i = list.first;
     final c = itemColors[i.colorIndex % itemColors.length];
     return InkWell(
+      borderRadius: BorderRadius.circular(14),
       onTap: () => _openEditor(existing: i),
       child: Container(
         height: slotHeight - 8,
+        margin: const EdgeInsets.only(left: 10),
+        padding: const EdgeInsets.only(left: 14),
         decoration: BoxDecoration(
-          color: c.withValues(alpha: 0.08),
-          border: Border(left: BorderSide(color: c.withValues(alpha: 0.6), width: 5)),
-          borderRadius: BorderRadius.circular(4),
+          border: Border(left: BorderSide(color: c.withValues(alpha: 0.5), width: 2)),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.centerLeft,
-        child: Text('↳ ${list.map((e) => e.title).join(', ')} devam ediyor',
-            style: Theme.of(context).textTheme.bodySmall),
+        child: Text('${list.map((e) => e.title).join(', ')} devam ediyor',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: c.withValues(alpha: 0.9),
+                  fontStyle: FontStyle.italic,
+                )),
       ),
     );
   }
@@ -312,39 +486,77 @@ class AllItemsPage extends StatefulWidget {
 class _AllItemsPageState extends State<AllItemsPage> {
   @override
   Widget build(BuildContext context) {
-    final items = [...Store.instance.items]..sort((a, b) {
-        final r = a.repeat.index.compareTo(b.repeat.index);
-        return r != 0 ? r : a.startMinutes.compareTo(b.startMinutes);
-      });
+    final theme = Theme.of(context);
+    final groups = <Repeat, List<ScheduleItem>>{};
+    for (final i in Store.instance.items) {
+      groups.putIfAbsent(i.repeat, () => []).add(i);
+    }
+    for (final g in groups.values) {
+      g.sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Tüm kayıtlar')),
-      body: items.isEmpty
-          ? const Center(child: Text('Henüz kayıt yok'))
-          : ListView.separated(
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (_, idx) {
-                final i = items[idx];
-                return ListTile(
-                  leading: CircleAvatar(
-                    radius: 8,
-                    backgroundColor: itemColors[i.colorIndex % itemColors.length],
-                  ),
-                  title: Text(i.title),
-                  subtitle: Text('${i.timeLabel} · ${i.repeatLabel}'),
-                  onTap: () async {
-                    await widget.onEdit(i);
-                    if (mounted) setState(() {});
-                  },
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () async {
-                      await widget.onDelete(i);
-                      if (mounted) setState(() {});
-                    },
-                  ),
-                );
-              },
+      body: groups.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.event_busy_rounded,
+                      size: 56, color: theme.colorScheme.onSurfaceVariant),
+                  const SizedBox(height: 12),
+                  const Text('Henüz kayıt yok'),
+                ],
+              ),
+            )
+          : ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              children: [
+                for (final r in Repeat.values)
+                  if (groups[r] != null) ...[
+                    SectionLabel(r.label, trailing: Text('${groups[r]!.length}')),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface1,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          for (final (idx, i) in groups[r]!.indexed) ...[
+                            if (idx > 0) const Divider(indent: 56),
+                            ListTile(
+                              leading: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: itemColors[i.colorIndex % itemColors.length],
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                              title: Text(i.title,
+                                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                              subtitle: Text('${i.timeLabel} · ${i.repeatLabel}'),
+                              onTap: () async {
+                                await widget.onEdit(i);
+                                if (mounted) setState(() {});
+                              },
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline_rounded),
+                                onPressed: () async {
+                                  await widget.onDelete(i);
+                                  if (mounted) setState(() {});
+                                },
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+              ],
             ),
     );
   }

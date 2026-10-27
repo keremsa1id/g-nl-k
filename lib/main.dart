@@ -5,6 +5,7 @@ import 'notifications.dart';
 import 'pages/schedule_page.dart';
 import 'pages/smoke_page.dart';
 import 'storage.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,13 +19,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFF00897B);
     return MaterialApp(
       title: 'Günlük',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
-      darkTheme: ThemeData(
-          colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
+      theme: AppTheme.dark,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.dark,
       locale: const Locale('tr'),
       supportedLocales: const [Locale('tr'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
@@ -59,13 +59,88 @@ class _HomeShellState extends State<HomeShell> {
         index: _index,
         children: const [SchedulePage(), SmokePage()],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.calendar_month), label: 'Program'),
-          NavigationDestination(icon: Icon(Icons.smoke_free), label: 'Sigara'),
-        ],
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: AppTheme.surface2,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: AppTheme.border),
+              boxShadow: const [
+                BoxShadow(color: Colors.black, blurRadius: 24, offset: Offset(0, 8)),
+              ],
+            ),
+            child: Row(
+              children: [
+                _NavItem(
+                  icon: Icons.calendar_month_rounded,
+                  label: 'Program',
+                  selected: _index == 0,
+                  onTap: () => setState(() => _index = 0),
+                ),
+                _NavItem(
+                  icon: Icons.smoke_free_rounded,
+                  label: 'Sigara',
+                  selected: _index == 1,
+                  onTap: () => setState(() => _index = 1),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Yüzen alt menüdeki hap şeklindeki sekme.
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = selected ? Colors.white : AppTheme.scheme.onSurfaceVariant;
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          height: 52,
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.red : Colors.transparent,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: selected
+                ? [BoxShadow(color: AppTheme.red.withValues(alpha: 0.45), blurRadius: 16)]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: fg, size: 22),
+              const SizedBox(width: 8),
+              Text(label,
+                  style: TextStyle(
+                    color: fg,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  )),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -4,12 +4,12 @@ import '../models.dart';
 import '../storage.dart';
 
 const itemColors = <Color>[
-  Color(0xFF26A69A),
-  Color(0xFF5C6BC0),
-  Color(0xFFEF5350),
-  Color(0xFFFFA726),
-  Color(0xFFAB47BC),
-  Color(0xFF66BB6A),
+  Color(0xFFE53935),
+  Color(0xFFFF4D6D),
+  Color(0xFFFF7A45),
+  Color(0xFFFFB020),
+  Color(0xFF9B5DE5),
+  Color(0xFF2EC4B6),
 ];
 
 /// Etkinlik ekleme / düzenleme alt sayfası. Kaydedince ScheduleItem döner.
@@ -118,10 +118,7 @@ class _ItemEditorState extends State<ItemEditor> {
               controller: _title,
               autofocus: widget.existing == null,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'Ne yapacaksın? (örn. Spor)',
-                border: OutlineInputBorder(),
-              ),
+              decoration: const InputDecoration(labelText: 'Ne yapacaksın? (örn. Spor)'),
             ),
             const SizedBox(height: 16),
             Row(
@@ -219,9 +216,21 @@ class _ItemEditorState extends State<ItemEditor> {
                 for (var i = 0; i < itemColors.length; i++)
                   GestureDetector(
                     onTap: () => setState(() => _color = i),
-                    child: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: itemColors[i],
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: itemColors[i],
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _color == i ? Colors.white : Colors.transparent,
+                          width: 2.5,
+                        ),
+                        boxShadow: _color == i
+                            ? [BoxShadow(color: itemColors[i].withValues(alpha: 0.6), blurRadius: 12)]
+                            : null,
+                      ),
                       child: _color == i
                           ? const Icon(Icons.check, size: 18, color: Colors.white)
                           : null,
@@ -235,6 +244,7 @@ class _ItemEditorState extends State<ItemEditor> {
             ],
             const SizedBox(height: 20),
             FilledButton.icon(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
               onPressed: _save,
               icon: const Icon(Icons.check),
               label: const Text('Kaydet'),
