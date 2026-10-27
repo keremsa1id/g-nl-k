@@ -1,0 +1,131 @@
+enum Repeat { once, daily, weekly, monthly }
+
+extension RepeatX on Repeat {
+  String get label => switch (this) {
+        Repeat.once => 'Tek sefer',
+        Repeat.daily => 'Her gün',
+        Repeat.weekly => 'Haftalık',
+        Repeat.monthly => 'Aylık',
+      };
+}
+
+const trWeekdays = [
+  'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'
+];
+const trWeekdaysShort = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+const trMonths = [
+  'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+];
+
+DateTime dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+bool sameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+String two(int n) => n.toString().padLeft(2, '0');
+
+/// Gün içindeki dakikayı "HH:MM" yapar.
+String fmtMinutes(int m) => '${two((m ~/ 60) % 24)}:${two(m % 60)}';
+
+String fmtDate(DateTime d) =>
+    '${d.day} ${trMonths[d.month - 1]} ${d.year}, ${trWeekdays[d.weekday - 1]}';
+
+String fmtDateTime(DateTime d) =>
+    '${d.day} ${trMonths[d.month - 1]} ${two(d.hour)}:${two(d.minute)}';
+
+String fmtDuration(int minutes) {
+  final h = minutes ~/ 60, m = minutes % 60;
+  if (h == 0) return '$m dk';
+  if (m == 0) return '$h sa';
+  return '$h sa $m dk';
+}
+
+class ScheduleItem {
+  const ScheduleItem({
+    required this.id,
+    required this.title,
+    required this.startMinutes,
+    required this.durationMinutes,
+    required this.repeat,
+    required this.startDate,
+    required this.weekdays,
+    required this.notify,
+    required this.colorIndex,
+  });
+
+  final int id;
+  final String title;
+  final int startMinutes; // 0..1410, 30'un katı
+  final int durationMinutes;
+  final Repeat repeat;
+  final DateTime startDate; // tek sefer: tarihi, diğerleri: başlangıç
+  final List<int> weekdays; // 1=Pzt .. 7=Paz (haftalık için)
+  final bool notify;
+  final int colorIndex;
+
+  int get endMinutes => startMinutes + durationMinutes;
+
+  String get timeLabel => '${fmtMinutes(startMinutes)} - ${fmtMinutes(endMinutes)}';
+
+  String get repeatLabel => switch (repeat) {
+        Repeat.once =>
+          '${startDate.day} ${trMonths[startDate.month - 1]} ${startDate.year}',
+        Repeat.daily => 'Her gün',
+        Repeat.weekly =>
+          'Her ${(weekdays.toList()..sort()).map((d) => trWeekdaysShort[d - 1]).join(', ')}',
+        Repeat.monthly => 'Her ayın ${startDate.day}. günü',
+      };
+
+  bool occursOn(DateTime day) {
+    final d = dateOnly(day);
+    if (d.isBefore(dateOnly(startDate))) return false;
+    return switch (repeat) {
+      Repeat.once => sameDay(d, startDate),
+      Repeat.daily => true,
+      Repeat.weekly => weekdays.contains(d.weekday),
+      Repeat.monthly => d.day == startDate.day,
+    };
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'start': startMinutes,
+        'duration': durationMinutes,
+        'repeat': repeat.name,
+        'startDate': startDate.toIso8601String(),
+        'weekdays': weekdays,
+        'notify': notify,
+        'color': colorIndex,
+      };
+
+  factory ScheduleItem.fromJson(Map<String, dynamic> j) => ScheduleItem(
+        id: j['id'] as int,
+        title: j['title'] as String,
+        startMinutes: j['start'] as int,
+        durationMinutes: j['duration'] as int,
+        repeat: Repeat.values.byName(j['repeat'] as String),
+        startDate: DateTime.parse(j['startDate'] as String),
+        weekdays: (j['weekdays'] as List<dynamic>).cast<int>(),
+        notify: j['notify'] as bool,
+        colorIndex: (j['color'] as int?) ?? 0,
+      );
+}
+
+class PackPurchase {
+  const PackPurchase({required this.time, required this.price, required this.count});
+
+  final DateTime time;
+  final double price;
+  final int count;
+
+  Map<String, dynamic> toJson() =>
+      {'time': time.toIso8601String(), 'price': price, 'count': count};
+
+  factory PackPurchase.fromJson(Map<String, dynamic> j) => PackPurchase(
+        time: DateTime.parse(j['time'] as String),
+        price: (j['price'] as num).toDouble(),
+        count: j['count'] as int,
+      );
+}

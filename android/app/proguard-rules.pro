@@ -1,0 +1,5 @@
+-keep class com.dexterous.** { *; }
+-keep class com.google.gson.** { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keepattributes Signature
+-keepattributes *Annotation*
