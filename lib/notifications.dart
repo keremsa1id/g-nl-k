@@ -1,13 +1,31 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:ui' show Color, DartPluginRegistrant;
+
+import 'package:flutter/foundation.dart' show ValueNotifier, kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'models.dart';
+import 'storage.dart';
+
+/// Uygulama kapalıyken bildirim butonuna basılınca ayrı bir isolate'te çalışır.
+@pragma('vm:entry-point')
+Future<void> notificationActionBackground(NotificationResponse r) async {
+  DartPluginRegistrant.ensureInitialized();
+  await Store.instance.load();
+  await Notifier.init(handlers: false);
+  await Notifier.handleResponse(r);
+}
 
 class Notifier {
   static final _plugin = FlutterLocalNotificationsPlugin();
   static const reminderBefore = Duration(minutes: 5);
+  static const snoozeFor = Duration(minutes: 10);
+  static const actionDone = 'done';
+  static const actionSnooze = 'snooze';
+
+  /// Bildirimden bir etkinlik tamamlanınca artar; sayfalar dinleyip yenilenir.
+  static final changes = ValueNotifier<int>(0);
 
   static const _details = NotificationDetails(
     android: AndroidNotificationDetails(
@@ -16,17 +34,45 @@ class Notifier {
       channelDescription: 'Programdaki etkinliklerden 5 dakika önce bildirim',
       importance: Importance.max,
       priority: Priority.high,
+      color: Color(0xFFE53935),
+      actions: [
+        AndroidNotificationAction(actionDone, '✅ Tamamlandı', cancelNotification: true),
+        AndroidNotificationAction(actionSnooze, '⏰ 10 dk ertele', cancelNotification: true),
+      ],
     ),
   );
 
-  static Future<void> init() async {
+  /// Bildirim butonları: Tamamlandı -> bugünü işaretle, Ertele -> 10 dk sonra tekrar hatırlat.
+  static Future<void> handleResponse(NotificationResponse r) async {
+    final id = int.tryParse(r.payload ?? '');
+    if (id == null) return;
+    final store = Store.instance;
+    final item = store.items.where((i) => i.id == id).firstOrNull;
+    if (item == null) return;
+    switch (r.actionId) {
+      case actionDone:
+        await store.setDone(id, DateTime.now(), true);
+        changes.value++;
+      case actionSnooze:
+        final when = tz.TZDateTime.now(tz.local).add(snoozeFor);
+        await _schedule(item.id * 10 + 8, 'Ertelendi: ${item.title}',
+            '${item.timeLabel} · tekrar hatırlatma', when, null, '${item.id}');
+    }
+  }
+
+  static Future<void> init({bool handlers = true}) async {
     if (kIsWeb) return; // web'de bildirim yok
     tzdata.initializeTimeZones();
     try {
       tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
     } catch (_) {}
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await _plugin.initialize(const InitializationSettings(android: android));
+    await _plugin.initialize(
+      const InitializationSettings(android: android),
+      onDidReceiveNotificationResponse: handlers ? handleResponse : null,
+      onDidReceiveBackgroundNotificationResponse:
+          handlers ? notificationActionBackground : null,
+    );
   }
 
   static Future<void> requestPermissions() async {
@@ -46,7 +92,10 @@ class Notifier {
 
   static Future<void> rescheduleAll(List<ScheduleItem> items) async {
     if (kIsWeb) return;
-    await _plugin.cancelAll();
+    // Ertelenmiş hatırlatmalar (id % 10 == 8) korunur, diğerleri yeniden kurulur.
+    for (final p in await _plugin.pendingNotificationRequests()) {
+      if (p.id % 10 != 8) await _plugin.cancel(p.id);
+    }
     for (final i in items) {
       await scheduleItem(i, cancelFirst: false);
     }
@@ -54,7 +103,7 @@ class Notifier {
 
   static Future<void> cancelItem(ScheduleItem item) async {
     if (kIsWeb) return;
-    for (var k = 0; k <= 7; k++) {
+    for (var k = 0; k <= 8; k++) {
       await _plugin.cancel(item.id * 10 + k);
     }
   }
@@ -105,17 +154,23 @@ class Notifier {
 
   static Future<void> _zoned(ScheduleItem item, int nid, tz.TZDateTime when,
       DateTimeComponents? match) async {
-    final title = 'Yaklaşan: ${item.title}';
-    final body = '5 dakika sonra başlıyor (${item.timeLabel})';
+    await _schedule(nid, 'Yaklaşan: ${item.title}',
+        '5 dakika sonra başlıyor (${item.timeLabel})', when, match, '${item.id}');
+  }
+
+  static Future<void> _schedule(int nid, String title, String body, tz.TZDateTime when,
+      DateTimeComponents? match, String payload) async {
     try {
       await _plugin.zonedSchedule(nid, title, body, when, _details,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-          matchDateTimeComponents: match);
+          matchDateTimeComponents: match,
+          payload: payload);
     } catch (_) {
       // Tam zamanlı alarm izni yoksa yaklaşık zamanlıya düş.
       await _plugin.zonedSchedule(nid, title, body, when, _details,
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          matchDateTimeComponents: match);
+          matchDateTimeComponents: match,
+          payload: payload);
     }
   }
 }

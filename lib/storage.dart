@@ -15,6 +15,7 @@ class Store {
   List<DateTime> smokes = [];
   List<PackPurchase> packs = [];
   DateTime? quitStart; // sigara kaydı olmadan sayacı başlatmak için
+  Map<int, Set<String>> done = {}; // etkinlik id -> tamamlandığı günler (dayKey)
   int _nextId = 1;
 
   Future<void> load() async {
@@ -33,6 +34,54 @@ class Store {
       ..sort((a, b) => a.time.compareTo(b.time));
     final q = _p.getString('quitStart');
     quitStart = q == null ? null : DateTime.tryParse(q);
+    _loadDone();
+  }
+
+  /// Bildirimden (arka planda) yapılan değişiklikleri okumak için.
+  Future<void> reloadDone() async {
+    await _p.reload();
+    _loadDone();
+  }
+
+  void _loadDone() {
+    done = {};
+    try {
+      final m = jsonDecode(_p.getString('done') ?? '{}') as Map<String, dynamic>;
+      m.forEach((k, v) => done[int.parse(k)] = (v as List<dynamic>).cast<String>().toSet());
+    } catch (_) {}
+  }
+
+  Future<void> saveDone() => _p.setString(
+      'done', jsonEncode(done.map((k, v) => MapEntry('$k', v.toList()..sort()))));
+
+  bool isDone(ScheduleItem item, DateTime day) =>
+      done[item.id]?.contains(dayKey(day)) ?? false;
+
+  Future<void> setDone(int itemId, DateTime day, bool value) async {
+    final set = done.putIfAbsent(itemId, () => {});
+    value ? set.add(dayKey(day)) : set.remove(dayKey(day));
+    if (set.isEmpty) done.remove(itemId);
+    await saveDone();
+  }
+
+  /// [asOf] gününe kadar art arda tamamlanan gerçekleşme sayısı.
+  /// [asOf] henüz tamamlanmadıysa seriyi bozmaz, bir öncekinden sayılır.
+  int streak(ScheduleItem item, DateTime asOf) {
+    final days = done[item.id];
+    if (days == null || days.isEmpty) return 0;
+    final start = dateOnly(item.startDate);
+    var count = 0;
+    for (var i = 0; i < 1000; i++) {
+      final d = DateTime(asOf.year, asOf.month, asOf.day - i);
+      if (d.isBefore(start)) break;
+      if (!item.occursOn(d)) continue;
+      if (days.contains(dayKey(d))) {
+        count++;
+      } else if (i > 0) {
+        break;
+      }
+    }
+    return count;
   }
 
   static List<dynamic> _decode(String? s) {
