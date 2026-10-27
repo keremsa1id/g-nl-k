@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../categories.dart';
 import '../models.dart';
 import '../notifications.dart';
 import '../storage.dart';
+import '../streaks.dart';
+import '../templates.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'item_detail_page.dart';
 import 'item_editor.dart';
+import 'stats_page.dart';
+import 'week_view_page.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -20,6 +27,7 @@ class _SchedulePageState extends State<SchedulePage> {
   final store = Store.instance;
   DateTime _day = dateOnly(DateTime.now());
   late final ScrollController _scroll;
+  Timer? _tick;
 
   @override
   void initState() {
@@ -28,11 +36,13 @@ class _SchedulePageState extends State<SchedulePage> {
     final slot = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
     _scroll = ScrollController(initialScrollOffset: (slot - 2).clamp(0, 47).toDouble() * slotHeight);
     Notifier.changes.addListener(_refresh);
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) => _refresh());
   }
 
   @override
   void dispose() {
     Notifier.changes.removeListener(_refresh);
+    _tick?.cancel();
     _scroll.dispose();
     super.dispose();
   }
@@ -40,11 +50,6 @@ class _SchedulePageState extends State<SchedulePage> {
   void _refresh() {
     if (mounted) setState(() {});
   }
-
-  static const _flame = Color(0xFFFF8A1F);
-
-  static String _streakLabel(ScheduleItem i, int n) =>
-      '$n ${i.repeat == Repeat.daily ? 'gün' : 'kez'} üst üste';
 
   Future<void> _toggleDone(ScheduleItem item) async {
     if (_day.isAfter(dateOnly(DateTime.now()))) {
@@ -55,18 +60,108 @@ class _SchedulePageState extends State<SchedulePage> {
     }
     final value = !store.isDone(item, _day);
     await store.setDone(item.id, _day, value);
+    unawaited(Notifier.refreshExtras());
     if (!mounted) return;
     setState(() {});
     if (!value) return;
+
     final n = store.streak(item, _day);
+    final tier = tierReached(n);
+    final dayItems = _dayItems;
+    final allDone = dayItems.every((i) => store.isDone(i, _day));
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (tier != null) {
+      final (min, emoji, name) = tier;
+      await showCelebration(context,
+          emoji: emoji,
+          title: '$name rozet!',
+          message: '${item.title}: $min ${item.repeat == Repeat.daily ? 'gün' : 'kez'} '
+              'üst üste tamamladın. Harika gidiyorsun!');
+    } else if (allDone && dayItems.length > 1) {
+      await showCelebration(context,
+          emoji: '🎉',
+          title: 'Günü tamamladın!',
+          message: 'Bugünkü ${dayItems.length} etkinliğin hepsi bitti.');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(n > 1 ? '🔥 ${item.title}: ${streakLabel(item, n)}!' : '✅ ${item.title} tamamlandı'),
+        action: SnackBarAction(label: 'Geri al', onPressed: () => _toggleDone(item)),
+      ));
+    }
+  }
+
+  Future<void> _snooze(ScheduleItem item) async {
+    await Notifier.snooze(item);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('⏰ ${item.title} 10 dk sonra tekrar hatırlatılacak')));
+  }
+
+  Future<void> _openDetail(ScheduleItem item) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ItemDetailPage(
+          itemId: item.id,
+          onEdit: (i) => _openEditor(existing: i),
+          onDelete: _delete,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _openWeek() async {
+    final d = await Navigator.push<DateTime>(
+      context,
+      MaterialPageRoute(builder: (_) => WeekViewPage(initialDay: _day)),
+    );
+    if (d != null && mounted) setState(() => _day = dateOnly(d));
+  }
+
+  void _openStats() => Navigator.push(
+      context, MaterialPageRoute<void>(builder: (_) => const StatsPage()));
+
+  Future<void> _showTemplates() async {
+    final t = await showModalBottomSheet<RoutineTemplate>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) => _TemplateSheet(),
+    );
+    if (t == null) return;
+    final today = dateOnly(DateTime.now());
+    final added = <ScheduleItem>[];
+    for (final e in t.entries) {
+      if (store.items.any((i) => i.title == e.title && i.startMinutes == e.start)) continue;
+      added.add(ScheduleItem(
+        id: store.newId(),
+        title: e.title,
+        startMinutes: e.start,
+        durationMinutes: e.duration,
+        repeat: Repeat.daily,
+        startDate: today,
+        weekdays: [today.weekday],
+        notify: true,
+        colorIndex: e.category % itemColors.length,
+        category: e.category,
+      ));
+    }
+    setState(() => store.items.addAll(added));
+    await store.saveItems();
+    for (final i in added) {
+      await Notifier.scheduleItem(i);
+    }
+    unawaited(Notifier.refreshExtras());
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(n > 1
-            ? '🔥 ${item.title}: ${_streakLabel(item, n)}!'
-            : '✅ ${item.title} tamamlandı'),
-        action: SnackBarAction(label: 'Geri al', onPressed: () => _toggleDone(item)),
-      ));
+          content: Text(added.isEmpty
+              ? '${t.name} zaten ekli'
+              : '${t.emoji} ${t.name}: ${added.length} etkinlik eklendi (her gün)')));
   }
 
   List<ScheduleItem> get _dayItems =>
@@ -92,6 +187,7 @@ class _SchedulePageState extends State<SchedulePage> {
     });
     await store.saveItems();
     await Notifier.scheduleItem(result);
+    unawaited(Notifier.refreshExtras());
   }
 
   Future<void> _delete(ScheduleItem item) async {
@@ -114,6 +210,7 @@ class _SchedulePageState extends State<SchedulePage> {
     await store.saveItems();
     await store.saveDone();
     await Notifier.cancelItem(item);
+    unawaited(Notifier.refreshExtras());
   }
 
   Future<void> _pickDate() async {
@@ -180,18 +277,40 @@ class _SchedulePageState extends State<SchedulePage> {
                   ),
                   child: PopupMenuButton<String>(
                     icon: const Icon(Icons.more_horiz_rounded),
-                    onSelected: (v) {
-                      if (v == 'test') Notifier.showTest();
+                    onSelected: (v) => switch (v) {
+                      'week' => _openWeek(),
+                      'templates' => _showTemplates(),
+                      'stats' => _openStats(),
+                      _ => Notifier.showTest(),
                     },
                     itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'test', child: Text('Bildirimi test et')),
+                      PopupMenuItem(
+                          value: 'week',
+                          child: ListTile(
+                              leading: Icon(Icons.view_week_rounded),
+                              title: Text('Haftalık görünüm'))),
+                      PopupMenuItem(
+                          value: 'templates',
+                          child: ListTile(
+                              leading: Icon(Icons.auto_awesome_rounded),
+                              title: Text('Hazır şablonlar'))),
+                      PopupMenuItem(
+                          value: 'stats',
+                          child: ListTile(
+                              leading: Icon(Icons.insights_rounded),
+                              title: Text('İstatistikler'))),
+                      PopupMenuItem(
+                          value: 'test',
+                          child: ListTile(
+                              leading: Icon(Icons.notifications_none_rounded),
+                              title: Text('Bildirimi test et'))),
                     ],
                   ),
                 ),
               ],
             ),
             _weekStrip(context, now),
-            _summary(context, items, isToday, now),
+            _todayPanel(context, items, isToday, now),
             Expanded(
               child: ListView.builder(
                 controller: _scroll,
@@ -217,6 +336,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final scheme = Theme.of(context).colorScheme;
     final monday = DateTime(_day.year, _day.month, _day.day - (_day.weekday - 1));
     return GestureDetector(
+      onLongPress: _openWeek,
       onHorizontalDragEnd: (d) {
         final v = d.primaryVelocity ?? 0;
         if (v < -200) _shift(7);
@@ -294,49 +414,143 @@ class _SchedulePageState extends State<SchedulePage> {
     );
   }
 
-  /// Gün özeti: etkinlik sayısı ve sıradaki etkinlik.
-  Widget _summary(BuildContext context, List<ScheduleItem> items, bool isToday, DateTime now) {
-    final theme = Theme.of(context);
+  /// Günün ilerleme halkası + şu an devam eden / sıradaki etkinlik.
+  Widget _todayPanel(BuildContext context, List<ScheduleItem> items, bool isToday, DateTime now) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final total = items.length;
+    final doneCount = items.where((i) => store.isDone(i, _day)).length;
+    final allDone = total > 0 && doneCount == total;
     final nowMin = now.hour * 60 + now.minute;
+    final current = isToday
+        ? items.where((i) => i.startMinutes <= nowMin && i.endMinutes > nowMin).firstOrNull
+        : null;
     final next = isToday
-        ? items.where((i) => i.startMinutes >= nowMin).firstOrNull
+        ? items.where((i) => i.startMinutes > nowMin).firstOrNull
         : items.firstOrNull;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
-      child: Row(
+
+    Widget pill(String text, Color color) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
+          child: Text(text,
+              style: const TextStyle(
+                  fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.8, color: Colors.white)),
+        );
+
+    Widget info;
+    if (current != null) {
+      final c = itemColors[current.colorIndex % itemColors.length];
+      final left = current.endMinutes - nowMin;
+      final p = (nowMin - current.startMinutes) / current.durationMinutes;
+      info = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-              items.isEmpty
-                  ? '0 etkinlik'
-                  : '${items.where((i) => store.isDone(i, _day)).length}/${items.length} tamamlandı',
-              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(width: 10),
-          if (next != null)
-            Flexible(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: AppTheme.red.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${isToday ? 'Sıradaki' : 'İlk'}: ${next.title} · ${fmtMinutes(next.startMinutes)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: AppTheme.redBright, fontSize: 12, fontWeight: FontWeight.w700),
-                ),
+          Row(
+            children: [
+              pill('ŞİMDİ', AppTheme.red),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(current.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
               ),
-            )
-          else
-            Flexible(
-              child: Text('Boş bir saate dokunarak ekle',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: p.clamp(0.0, 1.0),
+            minHeight: 6,
+            color: c,
+            borderRadius: BorderRadius.circular(3),
+          ),
+          const SizedBox(height: 4),
+          Text(
+              '${fmtDuration(left)} kaldı'
+              '${next != null ? ' · Sıradaki: ${next.title} ${fmtMinutes(next.startMinutes)}' : ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: muted)),
         ],
+      );
+    } else if (next != null) {
+      info = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              pill(isToday ? 'SIRADAKİ' : 'İLK', AppTheme.surface3),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(next.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+              isToday
+                  ? '${fmtMinutes(next.startMinutes)} · ${fmtDuration(next.startMinutes - nowMin)} sonra'
+                  : next.timeLabel,
+              style: TextStyle(fontSize: 12, color: muted)),
+        ],
+      );
+    } else {
+      info = Text(
+        total == 0
+            ? 'Boş gün. Bir saate dokun ya da menüden hazır şablon ekle.'
+            : allDone
+                ? 'Günü tamamladın! 🎉'
+                : 'Bugün için başka etkinlik yok',
+        style: TextStyle(
+            color: allDone ? AppTheme.redBright : muted,
+            fontWeight: allDone ? FontWeight.w800 : FontWeight.w500),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface1,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+              color: allDone ? AppTheme.red.withValues(alpha: 0.7) : AppTheme.border),
+          boxShadow: allDone
+              ? [BoxShadow(color: AppTheme.red.withValues(alpha: 0.3), blurRadius: 20)]
+              : null,
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 62,
+              height: 62,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(end: total == 0 ? 0 : doneCount / total),
+                    duration: const Duration(milliseconds: 600),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, v, __) => CustomPaint(
+                      size: const Size.square(62),
+                      painter: RingPainter(v, stroke: 7),
+                    ),
+                  ),
+                  allDone
+                      ? const Icon(Icons.check_rounded, color: AppTheme.redBright, size: 28)
+                      : Text('$doneCount/$total',
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: info),
+          ],
+        ),
       ),
     );
   }
@@ -422,7 +636,20 @@ class _SchedulePageState extends State<SchedulePage> {
     final cat = categoryOf(i.category);
     final done = store.isDone(i, _day);
     final streak = store.streak(i, _day);
-    return AnimatedContainer(
+    return Dismissible(
+      key: ValueKey('card-${i.id}-${dayKey(_day)}'),
+      confirmDismiss: (dir) async {
+        if (dir == DismissDirection.startToEnd) {
+          await _toggleDone(i);
+        } else {
+          await _snooze(i);
+        }
+        return false; // kart yerinde kalır
+      },
+      background: _swipeBg(Icons.check_rounded, done ? 'Geri al' : 'Tamamla', c, true),
+      secondaryBackground:
+          _swipeBg(Icons.snooze_rounded, '10 dk ertele', const Color(0xFF5C6BC0), false),
+      child: AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
@@ -438,7 +665,7 @@ class _SchedulePageState extends State<SchedulePage> {
         type: MaterialType.transparency,
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
-          onTap: () => _openEditor(existing: i),
+          onTap: () => _openDetail(i),
           onLongPress: () => _delete(i),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
@@ -512,28 +739,53 @@ class _SchedulePageState extends State<SchedulePage> {
           ),
         ),
       ),
+    ),
     );
   }
 
-  /// 🔥 "12 gün üst üste" rozeti.
+  Widget _swipeBg(IconData icon, String label, Color color, bool left) => Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        alignment: left ? Alignment.centerLeft : Alignment.centerRight,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white)),
+          ],
+        ),
+      );
+
+  /// 🔥 "12 gün üst üste" rozeti; renk seriye göre değişir, eşiklerde madalya çıkar.
   Widget _streakChip(ScheduleItem i, int n) {
+    final flame = flameColor(n);
+    final badge = badgeFor(n);
     return Container(
       padding: const EdgeInsets.fromLTRB(6, 3, 10, 3),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [
-          _flame.withValues(alpha: 0.28),
-          AppTheme.red.withValues(alpha: 0.12),
+          flame.withValues(alpha: 0.28),
+          flame.withValues(alpha: 0.08),
         ]),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _flame.withValues(alpha: 0.5)),
+        border: Border.all(color: flame.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.local_fire_department_rounded, size: 16, color: _flame),
+          Icon(Icons.local_fire_department_rounded, size: 16, color: flame),
           const SizedBox(width: 3),
-          Text(_streakLabel(i, n),
-              style: const TextStyle(color: _flame, fontSize: 12, fontWeight: FontWeight.w800)),
+          Text(streakLabel(i, n),
+              style: TextStyle(color: flame, fontSize: 12, fontWeight: FontWeight.w800)),
+          if (badge != null) ...[
+            const SizedBox(width: 4),
+            Text(badge, style: const TextStyle(fontSize: 12)),
+          ],
         ],
       ),
     );
@@ -676,6 +928,85 @@ class _AllItemsPageState extends State<AllItemsPage> {
                   ],
               ],
             ),
+    );
+  }
+}
+
+/// Hazır rutin şablonlarını listeleyen alt sayfa; seçileni döndürür.
+class _TemplateSheet extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      children: [
+        Text('Hazır şablonlar',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text('Tek dokunuşla her gün tekrar eden etkinlikler ekle.', style: TextStyle(color: muted)),
+        const SizedBox(height: 16),
+        for (final t in routineTemplates)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Material(
+              color: AppTheme.surface2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: const BorderSide(color: AppTheme.border),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.pop(context, t),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Text(t.emoji, style: const TextStyle(fontSize: 32)),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(t.name,
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                for (final e in t.entries)
+                                  Container(
+                                    padding:
+                                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.surface3,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(categoryOf(e.category)?.icon, size: 13,
+                                            color: AppTheme.redBright),
+                                        const SizedBox(width: 4),
+                                        Text('${fmtMinutes(e.start)} ${e.title}',
+                                            style: const TextStyle(fontSize: 11)),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.add_circle_rounded, color: AppTheme.red, size: 28),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

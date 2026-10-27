@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
@@ -93,42 +92,101 @@ class _SmokePageState extends State<SmokePage> {
     final priceCtrl = TextEditingController(text: '120');
     final countCtrl = TextEditingController(
         text: (s.packs.isEmpty ? 20 : s.packs.last.count).toString());
+    var qty = 1;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Paket aldım'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: priceCtrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Fiyat (₺)', hintText: 'örn. 100'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final price = double.tryParse(priceCtrl.text.replaceAll(',', '.').trim()) ?? 0;
+          return AlertDialog(
+            title: const Text('Paket aldım'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Kaç paket
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface1,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: Row(
+                    children: [
+                      _stepButton(Icons.remove_rounded,
+                          qty > 1 ? () => setLocal(() => qty--) : null),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Text('$qty',
+                                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                            const Text('paket',
+                                style: TextStyle(fontSize: 12, color: Colors.white60)),
+                          ],
+                        ),
+                      ),
+                      _stepButton(Icons.add_rounded, () => setLocal(() => qty++)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: priceCtrl,
+                  onChanged: (_) => setLocal(() {}),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Paket fiyatı (₺)'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: countCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Paketteki adet'),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Text('Toplam', style: TextStyle(color: Colors.white60)),
+                    const Spacer(),
+                    Text('${_num(price * qty)} ₺',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.redBright)),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: countCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Paketteki adet'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Ekle')),
-        ],
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+              FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(qty > 1 ? '$qty paket ekle' : 'Ekle')),
+            ],
+          );
+        },
       ),
     );
     if (ok != true) return;
     final price = double.tryParse(priceCtrl.text.replaceAll(',', '.').trim()) ?? 0;
     final count = int.tryParse(countCtrl.text.trim()) ?? 20;
-    setState(() => s.packs.add(PackPurchase(
-          time: DateTime.now(),
-          price: price,
-          count: count <= 0 ? 20 : count,
-        )));
+    final now = DateTime.now();
+    setState(() {
+      for (var i = 0; i < qty; i++) {
+        s.packs.add(PackPurchase(time: now, price: price, count: count <= 0 ? 20 : count));
+      }
+    });
     await s.saveSmoking();
   }
+
+  Widget _stepButton(IconData icon, VoidCallback? onTap) => IconButton.filled(
+        onPressed: onTap,
+        icon: Icon(icon),
+        style: IconButton.styleFrom(
+          backgroundColor: AppTheme.red,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: AppTheme.surface3,
+          fixedSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      );
 
   Future<void> _removePack(PackPurchase p) async {
     setState(() => s.packs.remove(p));
@@ -197,16 +255,13 @@ class _SmokePageState extends State<SmokePage> {
       remaining = r < 0 ? 0 : r;
     }
 
-    final entries = <(DateTime, PackPurchase?)>[
-      for (final t in s.smokes) (t, null),
-      for (final p in s.packs) (p.time, p),
-    ]..sort((a, b) => b.$1.compareTo(a.$1));
-
-    // Geçmişi günlere böl.
-    final byDay = <DateTime, List<(DateTime, PackPurchase?)>>{};
-    for (final e in entries.take(50)) {
-      byDay.putIfAbsent(dateOnly(e.$1), () => []).add(e);
-    }
+    // Geçmiş: her gün için içilen sigaralar ve alınan paketler (son 30 gün).
+    final days = <DateTime>{
+      dateOnly(now), // bugün her zaman görünsün
+      for (final t in s.smokes) dateOnly(t),
+      for (final p in s.packs) dateOnly(p.time),
+    }.toList()
+      ..sort((a, b) => b.compareTo(a));
 
     return Scaffold(
       body: SafeArea(
@@ -303,44 +358,7 @@ class _SmokePageState extends State<SmokePage> {
                   ),
                   const SizedBox(height: 28),
                   const SectionLabel('Geçmiş'),
-                  if (entries.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 28),
-                      decoration: _boxDecoration(),
-                      child: Column(
-                        children: [
-                          Icon(Icons.history_rounded,
-                              size: 40, color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(height: 8),
-                          const Text('Henüz kayıt yok'),
-                        ],
-                      ),
-                    ),
-                  for (final MapEntry(key: day, value: list) in byDay.entries) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-                      child: Text(_dayLabel(day, now),
-                          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                    ),
-                    Container(
-                      decoration: _boxDecoration(),
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          for (final (idx, (t, p)) in list.indexed) ...[
-                            if (idx > 0) const Divider(indent: 64),
-                            _historyTile(context, t, p),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  if (entries.isNotEmpty)
-                    Text('Silmek için kaydı sola kaydır.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  for (final day in days.take(30)) _dayCard(context, day, now),
                 ],
               ),
             ),
@@ -449,7 +467,7 @@ class _SmokePageState extends State<SmokePage> {
               curve: Curves.easeOutCubic,
               builder: (_, v, __) => CustomPaint(
                 size: const Size.square(250),
-                painter: _RingPainter(v),
+                painter: RingPainter(v),
               ),
             ),
             Padding(padding: const EdgeInsets.all(36), child: center),
@@ -615,86 +633,144 @@ class _SmokePageState extends State<SmokePage> {
     );
   }
 
-  Widget _historyTile(BuildContext context, DateTime t, PackPurchase? p) {
+  /// Bir günün özeti: tek "Sigara" satırı ve tek "Paket" satırı, sayılarıyla.
+  Widget _dayCard(BuildContext context, DateTime day, DateTime now) {
+    final theme = Theme.of(context);
+    final isToday = sameDay(day, now);
+    final smokes = s.smokes.where((t) => sameDay(t, day)).toList();
+    final packs = s.packs.where((p) => sameDay(p.time, day)).toList();
+    final spent = packs.fold<double>(0, (a, p) => a + p.price);
+    final times = smokes.reversed.map((t) => '${two(t.hour)}:${two(t.minute)}').toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+            child: Text(_dayLabel(day, now),
+                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          ),
+          Container(
+            decoration: _boxDecoration(),
+            child: Column(
+              children: [
+                if (smokes.isNotEmpty || isToday)
+                  _summaryRow(
+                    context,
+                    icon: Icons.smoking_rooms_rounded,
+                    accent: true,
+                    title: 'Sigara',
+                    subtitle: times.isEmpty
+                        ? 'Bugün hiç içilmedi 👏'
+                        : times.length > 6
+                            ? '${times.take(6).join(', ')} …'
+                            : times.join(', '),
+                    count: smokes.length,
+                    unit: 'adet',
+                    onMinus: smokes.isEmpty ? null : () => _removeSmoke(smokes.last),
+                    onPlus: isToday ? _logSmoke : null,
+                  ),
+                if ((smokes.isNotEmpty || isToday) && (packs.isNotEmpty || isToday))
+                  const Divider(indent: 64),
+                if (packs.isNotEmpty || isToday)
+                  _summaryRow(
+                    context,
+                    icon: Icons.shopping_bag_outlined,
+                    accent: false,
+                    title: 'Paket',
+                    subtitle: packs.isEmpty
+                        ? 'Paket alınmadı'
+                        : '${packs.first.count}\'lik · ${_num(spent)} ₺',
+                    count: packs.length,
+                    unit: 'paket',
+                    onMinus: packs.isEmpty ? null : () => _removePack(packs.last),
+                    onPlus: isToday ? _addPack : null,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(
+    BuildContext context, {
+    required IconData icon,
+    required bool accent,
+    required String title,
+    required String subtitle,
+    required int count,
+    required String unit,
+    VoidCallback? onMinus,
+    VoidCallback? onPlus,
+  }) {
     final scheme = Theme.of(context).colorScheme;
-    return Dismissible(
-      key: ValueKey('${p == null ? 's' : 'p'}${t.microsecondsSinceEpoch}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        color: AppTheme.red,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-      ),
-      onDismissed: (_) => p == null ? _removeSmoke(t) : _removePack(p),
-      child: ListTile(
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: p == null ? AppTheme.red.withValues(alpha: 0.15) : AppTheme.surface3,
-            borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: accent ? AppTheme.red.withValues(alpha: 0.15) : AppTheme.surface3,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon,
+                size: 20, color: accent ? AppTheme.redBright : scheme.onSurfaceVariant),
           ),
-          child: Icon(
-            p == null ? Icons.smoking_rooms_rounded : Icons.shopping_bag_outlined,
-            size: 20,
-            color: p == null ? AppTheme.redBright : scheme.onSurfaceVariant,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                const SizedBox(height: 2),
+                Text(subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12)),
+              ],
+            ),
           ),
-        ),
-        title: Text(
-          p == null ? 'Sigara' : 'Paket · ${p.count} adet',
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: p != null && p.price > 0 ? Text('${_num(p.price)} ₺') : null,
-        trailing: Text('${two(t.hour)}:${two(t.minute)}',
-            style: TextStyle(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            )),
+          _miniStep(Icons.remove_rounded, onMinus),
+          SizedBox(
+            width: 52,
+            child: Column(
+              children: [
+                Text('$count',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: accent && count > 0 ? AppTheme.redBright : scheme.onSurface,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    )),
+                Text(unit, style: TextStyle(fontSize: 10, color: scheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          if (onPlus != null) _miniStep(Icons.add_rounded, onPlus, filled: true),
+        ],
       ),
     );
   }
-}
 
-/// Kırmızı gradyanlı ilerleme halkası.
-class _RingPainter extends CustomPainter {
-  _RingPainter(this.progress);
-
-  final double progress;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const stroke = 14.0;
-    final rect = Offset.zero & size;
-    final arcRect = rect.deflate(stroke / 2);
-
-    canvas.drawArc(
-      arcRect,
-      0,
-      math.pi * 2,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..color = Colors.white.withValues(alpha: 0.07),
-    );
-
-    if (progress <= 0) return;
-    final sweep = math.pi * 2 * progress;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: 0,
-        endAngle: math.pi * 2,
-        colors: const [AppTheme.redDeep, AppTheme.red, AppTheme.redBright],
-        transform: const GradientRotation(-math.pi / 2),
-      ).createShader(rect);
-    canvas.drawArc(arcRect, -math.pi / 2, sweep, false, paint);
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.progress != progress;
+  Widget _miniStep(IconData icon, VoidCallback? onTap, {bool filled = false}) => IconButton(
+        onPressed: onTap,
+        icon: Icon(icon, size: 18),
+        style: IconButton.styleFrom(
+          backgroundColor: filled ? AppTheme.red : AppTheme.surface2,
+          foregroundColor: filled ? Colors.white : null,
+          disabledBackgroundColor: Colors.transparent,
+          fixedSize: const Size(36, 36),
+          minimumSize: const Size(36, 36),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+            side: BorderSide(color: filled || onTap == null ? Colors.transparent : AppTheme.border),
+          ),
+        ),
+      );
 }
