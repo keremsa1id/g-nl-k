@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
@@ -123,4 +125,98 @@ class SectionLabel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Gradyanlı ilerleme halkası (sigara sayacı ve günlük ilerleme).
+class RingPainter extends CustomPainter {
+  RingPainter(this.progress, {this.stroke = 14});
+
+  final double progress;
+  final double stroke;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final arcRect = rect.deflate(stroke / 2);
+
+    canvas.drawArc(
+      arcRect,
+      0,
+      math.pi * 2,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..color = Colors.white.withValues(alpha: 0.07),
+    );
+
+    if (progress <= 0) return;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..shader = const SweepGradient(
+        colors: [AppTheme.redDeep, AppTheme.red, AppTheme.redBright],
+        transform: GradientRotation(-math.pi / 2),
+      ).createShader(rect);
+    canvas.drawArc(arcRect, -math.pi / 2, math.pi * 2 * progress, false, paint);
+  }
+
+  @override
+  bool shouldRepaint(RingPainter old) => old.progress != progress || old.stroke != stroke;
+}
+
+/// Büyük emojili, zıplayarak açılan kutlama penceresi.
+Future<void> showCelebration(
+  BuildContext context, {
+  required String emoji,
+  required String title,
+  required String message,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => Dialog(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.2, end: 1),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.elasticOut,
+              builder: (_, v, child) => Transform.scale(scale: v, child: child),
+              child: Container(
+                width: 110,
+                height: 110,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(colors: [
+                    AppTheme.red.withValues(alpha: 0.45),
+                    Colors.transparent,
+                  ]),
+                ),
+                child: Text(emoji, style: const TextStyle(fontSize: 64)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: Theme.of(ctx).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 20),
+            FilledButton(
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Harika!'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

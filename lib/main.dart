@@ -21,6 +21,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Günlük',
+      navigatorKey: Notifier.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       darkTheme: AppTheme.dark,
@@ -50,6 +51,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Notifier.requestPermissions();
       await Notifier.rescheduleAll(Store.instance.items);
+      await Notifier.openFromLaunch();
     });
   }
 
@@ -65,6 +67,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) return;
     await Store.instance.reloadDone();
     Notifier.changes.value++;
+    await Notifier.refreshExtras();
   }
 
   @override

@@ -64,6 +64,47 @@ class Store {
     await saveDone();
   }
 
+  /// Başlangıçtan bugüne kadarki en uzun seri.
+  int bestStreak(ScheduleItem item) {
+    final days = done[item.id];
+    if (days == null || days.isEmpty) return 0;
+    final today = dateOnly(DateTime.now());
+    var d = dateOnly(item.startDate);
+    final limit = DateTime(today.year, today.month, today.day - 1100);
+    if (d.isBefore(limit)) d = limit;
+    var run = 0, best = 0;
+    while (!d.isAfter(today)) {
+      if (item.occursOn(d)) {
+        if (days.contains(dayKey(d))) {
+          run++;
+          if (run > best) best = run;
+        } else if (!sameDay(d, today)) {
+          run = 0;
+        }
+      }
+      d = DateTime(d.year, d.month, d.day + 1);
+    }
+    return best;
+  }
+
+  /// [from]..[to] arasında (bugünü geçmeden) tamamlanan ve planlanan gerçekleşme sayısı.
+  (int, int) tally(ScheduleItem item, DateTime from, DateTime to) {
+    final today = dateOnly(DateTime.now());
+    final end = to.isAfter(today) ? today : dateOnly(to);
+    final start = dateOnly(item.startDate);
+    var d = dateOnly(from);
+    if (d.isBefore(start)) d = start;
+    var n = 0, total = 0;
+    while (!d.isAfter(end)) {
+      if (item.occursOn(d)) {
+        total++;
+        if (isDone(item, d)) n++;
+      }
+      d = DateTime(d.year, d.month, d.day + 1);
+    }
+    return (n, total);
+  }
+
   /// [asOf] gününe kadar art arda tamamlanan gerçekleşme sayısı.
   /// [asOf] henüz tamamlanmadıysa seriyi bozmaz, bir öncekinden sayılır.
   int streak(ScheduleItem item, DateTime asOf) {
