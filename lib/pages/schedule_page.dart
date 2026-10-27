@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../categories.dart';
 import '../models.dart';
 import '../notifications.dart';
 import '../storage.dart';
@@ -26,12 +27,46 @@ class _SchedulePageState extends State<SchedulePage> {
     final now = DateTime.now();
     final slot = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
     _scroll = ScrollController(initialScrollOffset: (slot - 2).clamp(0, 47).toDouble() * slotHeight);
+    Notifier.changes.addListener(_refresh);
   }
 
   @override
   void dispose() {
+    Notifier.changes.removeListener(_refresh);
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  static const _flame = Color(0xFFFF8A1F);
+
+  static String _streakLabel(ScheduleItem i, int n) =>
+      '$n ${i.repeat == Repeat.daily ? 'gün' : 'kez'} üst üste';
+
+  Future<void> _toggleDone(ScheduleItem item) async {
+    if (_day.isAfter(dateOnly(DateTime.now()))) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('İleri bir tarih henüz tamamlanamaz')));
+      return;
+    }
+    final value = !store.isDone(item, _day);
+    await store.setDone(item.id, _day, value);
+    if (!mounted) return;
+    setState(() {});
+    if (!value) return;
+    final n = store.streak(item, _day);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(n > 1
+            ? '🔥 ${item.title}: ${_streakLabel(item, n)}!'
+            : '✅ ${item.title} tamamlandı'),
+        action: SnackBarAction(label: 'Geri al', onPressed: () => _toggleDone(item)),
+      ));
   }
 
   List<ScheduleItem> get _dayItems =>
@@ -72,8 +107,12 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
     );
     if (ok != true) return;
-    setState(() => store.items.removeWhere((i) => i.id == item.id));
+    setState(() {
+      store.items.removeWhere((i) => i.id == item.id);
+      store.done.remove(item.id);
+    });
     await store.saveItems();
+    await store.saveDone();
     await Notifier.cancelItem(item);
   }
 
@@ -266,7 +305,10 @@ class _SchedulePageState extends State<SchedulePage> {
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
       child: Row(
         children: [
-          Text('${items.length} etkinlik',
+          Text(
+              items.isEmpty
+                  ? '0 etkinlik'
+                  : '${items.where((i) => store.isDone(i, _day)).length}/${items.length} tamamlandı',
               style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
           const SizedBox(width: 10),
           if (next != null)
@@ -377,14 +419,20 @@ class _SchedulePageState extends State<SchedulePage> {
   Widget _card(BuildContext context, ScheduleItem i) {
     final c = itemColors[i.colorIndex % itemColors.length];
     final theme = Theme.of(context);
-    return Container(
+    final cat = categoryOf(i.category);
+    final done = store.isDone(i, _day);
+    final streak = store.streak(i, _day);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: LinearGradient(
-          colors: [c.withValues(alpha: 0.28), c.withValues(alpha: 0.08)],
+          colors: done
+              ? [c.withValues(alpha: 0.10), c.withValues(alpha: 0.03)]
+              : [c.withValues(alpha: 0.28), c.withValues(alpha: 0.08)],
         ),
-        border: Border.all(color: c.withValues(alpha: 0.4)),
+        border: Border.all(color: c.withValues(alpha: done ? 0.2 : 0.4)),
       ),
       child: Material(
         type: MaterialType.transparency,
@@ -393,18 +441,31 @@ class _SchedulePageState extends State<SchedulePage> {
           onTap: () => _openEditor(existing: i),
           onLongPress: () => _delete(i),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+            padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
             child: Row(
               children: [
-                Container(
-                  width: 4,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: c,
-                    borderRadius: BorderRadius.circular(4),
-                    boxShadow: [BoxShadow(color: c.withValues(alpha: 0.6), blurRadius: 8)],
+                // Kategori ikonu (yoksa renk çubuğu)
+                if (cat != null)
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: c.withValues(alpha: 0.22),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: c.withValues(alpha: 0.5)),
+                    ),
+                    child: Icon(cat.icon, color: c, size: 24),
+                  )
+                else
+                  Container(
+                    width: 4,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: c,
+                      borderRadius: BorderRadius.circular(4),
+                      boxShadow: [BoxShadow(color: c.withValues(alpha: 0.6), blurRadius: 8)],
+                    ),
                   ),
-                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -413,7 +474,12 @@ class _SchedulePageState extends State<SchedulePage> {
                       Text(i.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: done ? theme.colorScheme.onSurfaceVariant : null,
+                            decoration: done ? TextDecoration.lineThrough : null,
+                          )),
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -426,24 +492,69 @@ class _SchedulePageState extends State<SchedulePage> {
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall),
                           ),
+                          if (i.notify) ...[
+                            const SizedBox(width: 4),
+                            Icon(Icons.notifications_active_rounded,
+                                size: 13, color: theme.colorScheme.onSurfaceVariant),
+                          ],
                         ],
                       ),
+                      if (streak > 0) ...[
+                        const SizedBox(height: 6),
+                        _streakChip(i, streak),
+                      ],
                     ],
                   ),
                 ),
-                if (i.notify)
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: c.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.notifications_active_rounded, size: 16, color: c),
-                  ),
+                _doneButton(i, c, done),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// 🔥 "12 gün üst üste" rozeti.
+  Widget _streakChip(ScheduleItem i, int n) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(6, 3, 10, 3),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          _flame.withValues(alpha: 0.28),
+          AppTheme.red.withValues(alpha: 0.12),
+        ]),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _flame.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.local_fire_department_rounded, size: 16, color: _flame),
+          const SizedBox(width: 3),
+          Text(_streakLabel(i, n),
+              style: const TextStyle(color: _flame, fontSize: 12, fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
+  }
+
+  Widget _doneButton(ScheduleItem i, Color c, bool done) {
+    return IconButton(
+      tooltip: done ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı',
+      onPressed: () => _toggleDone(i),
+      icon: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: done ? c : Colors.transparent,
+          border: Border.all(color: done ? c : c.withValues(alpha: 0.7), width: 2),
+          boxShadow: done ? [BoxShadow(color: c.withValues(alpha: 0.5), blurRadius: 10)] : null,
+        ),
+        child: Icon(Icons.check_rounded,
+            size: 20, color: done ? Colors.white : c.withValues(alpha: 0.5)),
       ),
     );
   }
@@ -484,6 +595,8 @@ class AllItemsPage extends StatefulWidget {
 }
 
 class _AllItemsPageState extends State<AllItemsPage> {
+  int _streak(ScheduleItem i) => Store.instance.streak(i, DateTime.now());
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -528,16 +641,21 @@ class _AllItemsPageState extends State<AllItemsPage> {
                             if (idx > 0) const Divider(indent: 56),
                             ListTile(
                               leading: Container(
-                                width: 28,
-                                height: 28,
+                                width: 36,
+                                height: 36,
                                 decoration: BoxDecoration(
-                                  color: itemColors[i.colorIndex % itemColors.length],
-                                  borderRadius: BorderRadius.circular(9),
+                                  color: itemColors[i.colorIndex % itemColors.length]
+                                      .withValues(alpha: 0.22),
+                                  borderRadius: BorderRadius.circular(11),
                                 ),
+                                child: Icon(categoryOf(i.category)?.icon ?? Icons.circle,
+                                    size: categoryOf(i.category) == null ? 12 : 20,
+                                    color: itemColors[i.colorIndex % itemColors.length]),
                               ),
                               title: Text(i.title,
                                   style: const TextStyle(fontWeight: FontWeight.w600)),
-                              subtitle: Text('${i.timeLabel} · ${i.repeatLabel}'),
+                              subtitle: Text('${i.timeLabel} · ${i.repeatLabel}'
+                                  '${_streak(i) > 0 ? ' · 🔥 ${_streak(i)}' : ''}'),
                               onTap: () async {
                                 await widget.onEdit(i);
                                 if (mounted) setState(() {});

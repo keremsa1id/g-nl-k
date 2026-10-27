@@ -31,6 +31,9 @@
         <!-- Zamanlanmış bildirimler + telefon yeniden başlayınca geri kurma -->
         <receiver android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
+        <!-- Bildirimdeki "Tamamlandı" / "Ertele" butonları -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"/>
         <receiver android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
             <intent-filter>

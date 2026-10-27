@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../categories.dart';
 import '../models.dart';
 import '../storage.dart';
 
@@ -38,6 +39,7 @@ class _ItemEditorState extends State<ItemEditor> {
   late Set<int> _weekdays;
   late bool _notify;
   late int _color;
+  int? _category;
   String? _error;
 
   @override
@@ -52,6 +54,18 @@ class _ItemEditorState extends State<ItemEditor> {
     _weekdays = {...(e?.weekdays ?? [widget.day.weekday])};
     _notify = e?.notify ?? true;
     _color = e?.colorIndex ?? 0;
+    _category = e?.category;
+  }
+
+  void _pickCategory(int i) {
+    setState(() {
+      final prev = categoryOf(_category)?.name;
+      final t = _title.text.trim();
+      // Başlık boşsa ya da önceki kategorinin adıysa yeni kategorinin adını yaz.
+      if (t.isEmpty || t == prev) _title.text = categories[i].name;
+      _category = _category == i ? null : i;
+      _error = null;
+    });
   }
 
   @override
@@ -83,6 +97,7 @@ class _ItemEditorState extends State<ItemEditor> {
         weekdays: _weekdays.toList()..sort(),
         notify: _notify,
         colorIndex: _color,
+        category: _category,
       ),
     );
   }
@@ -119,6 +134,20 @@ class _ItemEditorState extends State<ItemEditor> {
               autofocus: widget.existing == null,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(labelText: 'Ne yapacaksın? (örn. Spor)'),
+            ),
+            const SizedBox(height: 16),
+            Text('Kategori', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            GridView.count(
+              crossAxisCount: 5,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 0.85,
+              children: [
+                for (var i = 0; i < categories.length; i++) _categoryTile(context, i),
+              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -248,6 +277,46 @@ class _ItemEditorState extends State<ItemEditor> {
               onPressed: _save,
               icon: const Icon(Icons.check),
               label: const Text('Kaydet'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryTile(BuildContext context, int i) {
+    final c = categories[i];
+    final selected = _category == i;
+    final accent = itemColors[_color];
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return GestureDetector(
+      onTap: () => _pickCategory(i),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: selected ? accent.withValues(alpha: 0.22) : const Color(0xFF151518),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? accent : const Color(0xFF26262B),
+            width: selected ? 1.6 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(c.icon, size: 26, color: selected ? accent : muted),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(c.name,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? Colors.white : muted,
+                    )),
+              ),
             ),
           ],
         ),

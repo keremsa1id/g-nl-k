@@ -90,8 +90,7 @@ class _SmokePageState extends State<SmokePage> {
   }
 
   Future<void> _addPack() async {
-    final priceCtrl = TextEditingController(
-        text: s.packs.isEmpty ? '' : _num(s.packs.last.price));
+    final priceCtrl = TextEditingController(text: '120');
     final countCtrl = TextEditingController(
         text: (s.packs.isEmpty ? 20 : s.packs.last.count).toString());
     final ok = await showDialog<bool>(
@@ -217,13 +216,6 @@ class _SmokePageState extends State<SmokePage> {
             PageHeader(
               eyebrow: 'Sigarayı bırak',
               title: elapsed == null ? 'Hazır mısın?' : 'Temiz kalıyorsun',
-              actions: [
-                SquareIconButton(
-                  tooltip: 'Paket aldım',
-                  icon: Icons.shopping_bag_outlined,
-                  onPressed: _addPack,
-                ),
-              ],
             ),
             Expanded(
               child: ListView(
@@ -307,6 +299,7 @@ class _SmokePageState extends State<SmokePage> {
                     value: '${_num(totalSpent)} ₺',
                     sub: '${s.packs.length} paket alındı · '
                         '${remaining == null ? 'kalan bilinmiyor' : 'tahmini $remaining adet kaldı'}',
+                    onTap: _addPack,
                   ),
                   const SizedBox(height: 28),
                   const SectionLabel('Geçmiş'),
@@ -558,17 +551,11 @@ class _SmokePageState extends State<SmokePage> {
     required String value,
     required String sub,
     bool highlight = false,
+    VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
-    return Container(
+    final row = Padding(
       padding: const EdgeInsets.all(16),
-      decoration: _boxDecoration().copyWith(
-        gradient: highlight
-            ? LinearGradient(colors: [AppTheme.red.withValues(alpha: 0.22), AppTheme.surface1])
-            : null,
-        border: Border.all(
-            color: highlight ? AppTheme.red.withValues(alpha: 0.45) : AppTheme.border),
-      ),
       child: Row(
         children: [
           Container(
@@ -598,8 +585,33 @@ class _SmokePageState extends State<SmokePage> {
           const SizedBox(width: 8),
           Text(value,
               style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+          if (onTap != null) ...[
+            const SizedBox(width: 10),
+            Container(
+              width: 32,
+              height: 32,
+              decoration: const BoxDecoration(color: AppTheme.red, shape: BoxShape.circle),
+              child: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
+            ),
+          ],
         ],
       ),
+    );
+    return Container(
+      decoration: _boxDecoration().copyWith(
+        gradient: highlight
+            ? LinearGradient(colors: [AppTheme.red.withValues(alpha: 0.22), AppTheme.surface1])
+            : null,
+        border: Border.all(
+            color: highlight ? AppTheme.red.withValues(alpha: 0.45) : AppTheme.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: onTap == null
+          ? row
+          : Material(
+              type: MaterialType.transparency,
+              child: InkWell(onTap: onTap, child: row),
+            ),
     );
   }
 

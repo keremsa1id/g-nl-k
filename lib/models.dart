@@ -25,6 +25,9 @@ bool sameDay(DateTime a, DateTime b) =>
 
 String two(int n) => n.toString().padLeft(2, '0');
 
+/// Tamamlama kayıtları için gün anahtarı: "2026-10-27".
+String dayKey(DateTime d) => '${d.year}-${two(d.month)}-${two(d.day)}';
+
 /// Gün içindeki dakikayı "HH:MM" yapar.
 String fmtMinutes(int m) => '${two((m ~/ 60) % 24)}:${two(m % 60)}';
 
@@ -52,6 +55,7 @@ class ScheduleItem {
     required this.weekdays,
     required this.notify,
     required this.colorIndex,
+    this.category,
   });
 
   final int id;
@@ -63,6 +67,7 @@ class ScheduleItem {
   final List<int> weekdays; // 1=Pzt .. 7=Paz (haftalık için)
   final bool notify;
   final int colorIndex;
+  final int? category; // categories listesindeki sıra, null = kategorisiz
 
   int get endMinutes => startMinutes + durationMinutes;
 
@@ -98,6 +103,7 @@ class ScheduleItem {
         'weekdays': weekdays,
         'notify': notify,
         'color': colorIndex,
+        if (category != null) 'cat': category,
       };
 
   factory ScheduleItem.fromJson(Map<String, dynamic> j) => ScheduleItem(
@@ -110,6 +116,7 @@ class ScheduleItem {
         weekdays: (j['weekdays'] as List<dynamic>).cast<int>(),
         notify: j['notify'] as bool,
         colorIndex: (j['color'] as int?) ?? 0,
+        category: j['cat'] as int?,
       );
 }
 
