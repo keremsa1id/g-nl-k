@@ -30,6 +30,14 @@ class ItemEditor extends StatefulWidget {
   State<ItemEditor> createState() => _ItemEditorState();
 }
 
+/// Düzenleyicide tek bir hatırlatma satırı.
+class _ReminderRow {
+  _ReminderRow(this.offset, String note) : note = TextEditingController(text: note);
+
+  int offset;
+  final TextEditingController note;
+}
+
 class _ItemEditorState extends State<ItemEditor> {
   late final TextEditingController _title;
   late int _start;
@@ -37,7 +45,7 @@ class _ItemEditorState extends State<ItemEditor> {
   late Repeat _repeat;
   late DateTime _date;
   late Set<int> _weekdays;
-  late bool _notify;
+  late List<_ReminderRow> _reminders;
   late int _color;
   int? _category;
   String? _error;
@@ -52,7 +60,9 @@ class _ItemEditorState extends State<ItemEditor> {
     _repeat = e?.repeat ?? Repeat.daily;
     _date = e?.startDate ?? widget.day;
     _weekdays = {...(e?.weekdays ?? [widget.day.weekday])};
-    _notify = e?.notify ?? true;
+    _reminders = [
+      for (final r in e?.reminders ?? const [Reminder(5)]) _ReminderRow(r.minutesBefore, r.note),
+    ];
     _color = e?.colorIndex ?? 0;
     _category = e?.category;
   }
@@ -71,6 +81,9 @@ class _ItemEditorState extends State<ItemEditor> {
   @override
   void dispose() {
     _title.dispose();
+    for (final r in _reminders) {
+      r.note.dispose();
+    }
     super.dispose();
   }
 
@@ -95,7 +108,9 @@ class _ItemEditorState extends State<ItemEditor> {
         repeat: _repeat,
         startDate: dateOnly(_date),
         weekdays: _weekdays.toList()..sort(),
-        notify: _notify,
+        reminders: [
+          for (final r in _reminders) Reminder(r.offset, r.note.text.trim()),
+        ],
         colorIndex: _color,
         category: _category,
       ),
@@ -229,14 +244,9 @@ class _ItemEditorState extends State<ItemEditor> {
                   (_repeat == Repeat.monthly ? ' · her ayın ${_date.day}. günü' : '')),
               onTap: _pickDate,
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _notify,
-              onChanged: (v) => setState(() => _notify = v),
-              title: const Text('5 dakika önce bildirim'),
-              subtitle: Text('Bildirim saati: ${fmtMinutes((_start - 5 + 1440) % 1440)}'),
-            ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
+            _remindersSection(context),
+            const SizedBox(height: 16),
             Text('Renk', style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Wrap(
@@ -321,6 +331,122 @@ class _ItemEditorState extends State<ItemEditor> {
           ],
         ),
       ),
+    );
+  }
+
+  void _addReminder() {
+    final used = _reminders.map((r) => r.offset).toSet();
+    final next = reminderOffsets.firstWhere((o) => !used.contains(o), orElse: () => 15);
+    setState(() => _reminders.add(_ReminderRow(next, '')));
+  }
+
+  void _removeReminder(_ReminderRow r) {
+    setState(() => _reminders.remove(r));
+    r.note.dispose();
+  }
+
+  /// "Hatırlatmalar" bölümü: her biri ayrı zamanlı ve isteğe bağlı notlu.
+  Widget _remindersSection(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final accent = itemColors[_color];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('Hatırlatmalar', style: theme.textTheme.labelLarge),
+            const SizedBox(width: 8),
+            if (_reminders.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('${_reminders.length}',
+                    style: TextStyle(color: accent, fontWeight: FontWeight.w800, fontSize: 12)),
+              ),
+            const Spacer(),
+            Icon(Icons.vibration_rounded, size: 16, color: muted),
+            const SizedBox(width: 4),
+            Text('titreşimli', style: TextStyle(fontSize: 11, color: muted)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_reminders.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text('Bildirim yok. Aşağıdan hatırlatma ekleyebilirsin.',
+                style: TextStyle(color: muted, fontSize: 13)),
+          ),
+        for (final r in _reminders)
+          Container(
+            key: ObjectKey(r),
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.fromLTRB(12, 6, 4, 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF151518),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF26262B)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.notifications_active_rounded, size: 20, color: accent),
+                    const SizedBox(width: 8),
+                    DropdownButton<int>(
+                      value: r.offset,
+                      underline: const SizedBox(),
+                      borderRadius: BorderRadius.circular(14),
+                      dropdownColor: const Color(0xFF1D1D21),
+                      style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white),
+                      items: [
+                        for (final o in {...reminderOffsets, r.offset}.toList()..sort())
+                          DropdownMenuItem(value: o, child: Text(fmtOffset(o))),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setState(() => r.offset = v);
+                      },
+                    ),
+                    const Spacer(),
+                    Text(
+                      r.offset >= 1440
+                          ? 'önceki gün ${fmtMinutes((_start - r.offset) % 1440)}'
+                          : r.offset > _start
+                              ? 'önceki gün ${fmtMinutes((_start - r.offset + 1440) % 1440)}'
+                              : fmtMinutes(_start - r.offset),
+                      style: TextStyle(fontSize: 12, color: muted),
+                    ),
+                    IconButton(
+                      tooltip: 'Kaldır',
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => _removeReminder(r),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: TextField(
+                    controller: r.note,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'Not ekle (isteğe bağlı) · örn. Spor çantasını hazırla',
+                      isDense: true,
+                      prefixIcon: Icon(Icons.edit_note_rounded, size: 20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: _reminders.length >= 12 ? null : _addReminder,
+          icon: const Icon(Icons.add_alert_rounded),
+          label: Text(_reminders.isEmpty ? 'Hatırlatma ekle' : 'Başka bir hatırlatma ekle'),
+        ),
+      ],
     );
   }
 }

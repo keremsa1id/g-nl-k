@@ -7,9 +7,10 @@ import '../models.dart';
 import '../storage.dart';
 import '../streaks.dart';
 import '../theme.dart';
+import '../trackers.dart';
 import '../widgets.dart';
 
-/// Haftalık rapor, kategori dağılımı ve spor–sigara ilişkisi.
+/// Haftalık rapor, kategori dağılımı ve spor ile takiplerin (sigara, alkol…) ilişkisi.
 class StatsPage extends StatelessWidget {
   const StatsPage({super.key});
 
@@ -111,20 +112,12 @@ class StatsPage extends StatelessWidget {
     final catList = minutes.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final totalMin = catList.fold<int>(0, (a, e) => a + e.value);
 
-    // Spor yapılan / yapılmayan günlerde sigara (son 30 gün)
-    var sportDays = 0, sportSmokes = 0, otherDays = 0, otherSmokes = 0;
-    for (var k = 0; k < 30; k++) {
-      final d = _add(today, -k);
-      final smokes = store.smokes.where((t) => sameDay(t, d)).length;
-      final sport = store.items.any((i) => i.category == 0 && store.isDone(i, d));
-      if (sport) {
-        sportDays++;
-        sportSmokes += smokes;
-      } else {
-        otherDays++;
-        otherSmokes += smokes;
-      }
-    }
+    // Spor yapılan günler (son 30 gün) — her takiple karşılaştırmak için
+    final last30 = [for (var k = 0; k < 30; k++) _add(today, -k)];
+    final sportDaySet = {
+      for (final d in last30)
+        if (store.items.any((i) => i.category == 0 && store.isDone(i, d))) d,
+    };
 
     return Scaffold(
       appBar: AppBar(title: const Text('İstatistikler')),
@@ -138,9 +131,18 @@ class StatsPage extends StatelessWidget {
           const SizedBox(height: 24),
           const SectionLabel('Bu hafta zaman dağılımı'),
           _categoryCard(context, catList, totalMin),
-          const SizedBox(height: 24),
-          const SectionLabel('Spor ve sigara · son 30 gün'),
-          _sportSmokeCard(context, sportDays, sportSmokes, otherDays, otherSmokes),
+          for (final t in store.trackers) ...[
+            const SizedBox(height: 24),
+            SectionLabel('Spor ve ${t.name.toLowerCase()} · son 30 gün'),
+            _sportTrackerCard(
+              context,
+              t,
+              sportDaySet.length,
+              sportDaySet.fold<int>(0, (a, d) => a + t.countOn(d)),
+              last30.length - sportDaySet.length,
+              last30.where((d) => !sportDaySet.contains(d)).fold<int>(0, (a, d) => a + t.countOn(d)),
+            ),
+          ],
         ],
       ),
     );
@@ -371,8 +373,8 @@ class StatsPage extends StatelessWidget {
     );
   }
 
-  Widget _sportSmokeCard(
-      BuildContext context, int sportDays, int sportSmokes, int otherDays, int otherSmokes) {
+  Widget _sportTrackerCard(BuildContext context, Tracker t, int sportDays, int sportSmokes,
+      int otherDays, int otherSmokes) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final box = BoxDecoration(
       color: AppTheme.surface1,
@@ -390,7 +392,7 @@ class StatsPage extends StatelessWidget {
             Expanded(
               child: Text(
                   'Spor kategorisinde bir etkinlik ekleyip tamamladıkça, spor yaptığın '
-                  'günlerle yapmadığın günlerdeki sigara sayısı burada karşılaştırılacak.',
+                  'günlerle yapmadığın günlerdeki ${t.name.toLowerCase()} sayısı burada karşılaştırılacak.',
                   style: TextStyle(color: muted)),
             ),
           ],
@@ -443,8 +445,8 @@ class StatsPage extends StatelessWidget {
           Text(
             better
                 ? 'Spor yaptığın günlerde ortalama ${(withoutAvg - withAvg).toStringAsFixed(1)} '
-                    'sigara daha az içiyorsun. Devam! 🔥'
-                : 'Spor yaptığın günlerde sigara sayın düşmemiş görünüyor.',
+                    '${t.unit} daha az. Devam! 🔥'
+                : 'Spor yaptığın günlerde ${t.name.toLowerCase()} sayın düşmemiş görünüyor.',
             style: TextStyle(color: better ? const Color(0xFF2EC4B6) : muted, fontSize: 13),
           ),
         ],

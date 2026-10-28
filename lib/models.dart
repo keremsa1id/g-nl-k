@@ -44,6 +44,29 @@ String fmtDuration(int minutes) {
   return '$h sa $m dk';
 }
 
+/// Etkinlik hatırlatması hangi aralıkla seçilebilir (başlangıçtan kaç dakika önce).
+const reminderOffsets = <int>[0, 5, 10, 15, 30, 45, 60, 120, 180, 360, 720, 1440];
+
+String fmtOffset(int m) {
+  if (m == 0) return 'Başlarken';
+  if (m == 1440) return '1 gün önce';
+  if (m < 60) return '$m dk önce';
+  return m % 60 == 0 ? '${m ~/ 60} sa önce' : '${m ~/ 60} sa ${m % 60} dk önce';
+}
+
+/// Etkinliğe bağlı tek bir hatırlatma: başlangıçtan [minutesBefore] dk önce, isteğe bağlı notla.
+class Reminder {
+  const Reminder(this.minutesBefore, [this.note = '']);
+
+  final int minutesBefore;
+  final String note;
+
+  Map<String, dynamic> toJson() => {'m': minutesBefore, if (note.isNotEmpty) 'n': note};
+
+  factory Reminder.fromJson(Map<String, dynamic> j) =>
+      Reminder(j['m'] as int, (j['n'] as String?) ?? '');
+}
+
 class ScheduleItem {
   const ScheduleItem({
     required this.id,
@@ -53,10 +76,11 @@ class ScheduleItem {
     required this.repeat,
     required this.startDate,
     required this.weekdays,
-    required this.notify,
     required this.colorIndex,
     this.category,
-  });
+    List<Reminder>? reminders,
+    bool notify = false,
+  }) : reminders = reminders ?? (notify ? const [Reminder(5)] : const <Reminder>[]);
 
   final int id;
   final String title;
@@ -65,9 +89,11 @@ class ScheduleItem {
   final Repeat repeat;
   final DateTime startDate; // tek sefer: tarihi, diğerleri: başlangıç
   final List<int> weekdays; // 1=Pzt .. 7=Paz (haftalık için)
-  final bool notify;
+  final List<Reminder> reminders;
   final int colorIndex;
   final int? category; // categories listesindeki sıra, null = kategorisiz
+
+  bool get notify => reminders.isNotEmpty;
 
   int get endMinutes => startMinutes + durationMinutes;
 
@@ -101,7 +127,7 @@ class ScheduleItem {
         'repeat': repeat.name,
         'startDate': startDate.toIso8601String(),
         'weekdays': weekdays,
-        'notify': notify,
+        'reminders': reminders.map((r) => r.toJson()).toList(),
         'color': colorIndex,
         if (category != null) 'cat': category,
       };
@@ -114,7 +140,11 @@ class ScheduleItem {
         repeat: Repeat.values.byName(j['repeat'] as String),
         startDate: DateTime.parse(j['startDate'] as String),
         weekdays: (j['weekdays'] as List<dynamic>).cast<int>(),
-        notify: j['notify'] as bool,
+        // Eski kayıtlarda yalnızca 'notify' vardı: 5 dk önce tek hatırlatma.
+        reminders: (j['reminders'] as List<dynamic>?)
+            ?.map((e) => Reminder.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        notify: (j['notify'] as bool?) ?? false,
         colorIndex: (j['color'] as int?) ?? 0,
         category: j['cat'] as int?,
       );
@@ -134,5 +164,37 @@ class PackPurchase {
         time: DateTime.parse(j['time'] as String),
         price: (j['price'] as num).toDouble(),
         count: j['count'] as int,
+      );
+}
+
+/// Günlük ruh hali seçenekleri: (emoji, ad).
+const moods = <(String, String)>[
+  ('😞', 'Kötü'),
+  ('😕', 'Pek değil'),
+  ('😐', 'Normal'),
+  ('🙂', 'İyi'),
+  ('😄', 'Harika'),
+];
+
+/// Bir günün günlük yazısı ve ruh hali.
+class JournalEntry {
+  const JournalEntry({this.text = '', this.mood, this.updated});
+
+  final String text;
+  final int? mood; // moods listesindeki sıra
+  final DateTime? updated;
+
+  bool get isEmpty => text.trim().isEmpty && mood == null;
+
+  Map<String, dynamic> toJson() => {
+        'text': text,
+        if (mood != null) 'mood': mood,
+        if (updated != null) 'updated': updated!.toIso8601String(),
+      };
+
+  factory JournalEntry.fromJson(Map<String, dynamic> j) => JournalEntry(
+        text: (j['text'] as String?) ?? '',
+        mood: j['mood'] as int?,
+        updated: DateTime.tryParse((j['updated'] as String?) ?? ''),
       );
 }
