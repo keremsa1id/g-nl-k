@@ -229,6 +229,8 @@ class Notifier {
   static Future<void> scheduleItem(ScheduleItem item, {bool cancelFirst = true}) async {
     if (kIsWeb) return;
     if (cancelFirst) await cancelItem(item);
+    // Bitiş tarihi geçmişse bildirim kurma (uygulama her açılışta yeniden planlar).
+    if (item.hasEnd && dateOnly(DateTime.now()).isAfter(dateOnly(item.endDate!))) return;
 
     for (final (r, rem) in item.reminders.take(_maxReminders).indexed) {
       final base = item.id * _perItem + r * 8;

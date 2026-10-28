@@ -78,6 +78,8 @@ class ScheduleItem {
     required this.weekdays,
     required this.colorIndex,
     this.category,
+    this.endDate,
+    this.note = '',
     List<Reminder>? reminders,
     bool notify = false,
   }) : reminders = reminders ?? (notify ? const [Reminder(5)] : const <Reminder>[]);
@@ -92,6 +94,8 @@ class ScheduleItem {
   final List<Reminder> reminders;
   final int colorIndex;
   final int? category; // categories listesindeki sıra, null = kategorisiz
+  final DateTime? endDate; // tekrarlananlar için son gün (dahil), null = süresiz
+  final String note; // etkinlik açıklaması
 
   bool get notify => reminders.isNotEmpty;
 
@@ -99,18 +103,23 @@ class ScheduleItem {
 
   String get timeLabel => '${fmtMinutes(startMinutes)} - ${fmtMinutes(endMinutes)}';
 
-  String get repeatLabel => switch (repeat) {
-        Repeat.once =>
-          '${startDate.day} ${trMonths[startDate.month - 1]} ${startDate.year}',
-        Repeat.daily => 'Her gün',
-        Repeat.weekly =>
-          'Her ${(weekdays.toList()..sort()).map((d) => trWeekdaysShort[d - 1]).join(', ')}',
-        Repeat.monthly => 'Her ayın ${startDate.day}. günü',
-      };
+  bool get hasEnd => endDate != null && repeat != Repeat.once;
+
+  String get repeatLabel {
+    final base = switch (repeat) {
+      Repeat.once => '${startDate.day} ${trMonths[startDate.month - 1]} ${startDate.year}',
+      Repeat.daily => 'Her gün',
+      Repeat.weekly =>
+        'Her ${(weekdays.toList()..sort()).map((d) => trWeekdaysShort[d - 1]).join(', ')}',
+      Repeat.monthly => 'Her ayın ${startDate.day}. günü',
+    };
+    return hasEnd ? '$base · ${endDate!.day} ${trMonths[endDate!.month - 1]} bitiş' : base;
+  }
 
   bool occursOn(DateTime day) {
     final d = dateOnly(day);
     if (d.isBefore(dateOnly(startDate))) return false;
+    if (hasEnd && d.isAfter(dateOnly(endDate!))) return false;
     return switch (repeat) {
       Repeat.once => sameDay(d, startDate),
       Repeat.daily => true,
@@ -130,6 +139,8 @@ class ScheduleItem {
         'reminders': reminders.map((r) => r.toJson()).toList(),
         'color': colorIndex,
         if (category != null) 'cat': category,
+        if (endDate != null) 'endDate': endDate!.toIso8601String(),
+        if (note.isNotEmpty) 'note': note,
       };
 
   factory ScheduleItem.fromJson(Map<String, dynamic> j) => ScheduleItem(
@@ -147,6 +158,8 @@ class ScheduleItem {
         notify: (j['notify'] as bool?) ?? false,
         colorIndex: (j['color'] as int?) ?? 0,
         category: j['cat'] as int?,
+        endDate: DateTime.tryParse((j['endDate'] as String?) ?? ''),
+        note: (j['note'] as String?) ?? '',
       );
 }
 

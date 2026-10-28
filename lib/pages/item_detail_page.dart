@@ -103,6 +103,25 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               ),
             ],
           ),
+          if (item.note.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppTheme.surface1,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.sticky_note_2_outlined, size: 20, color: c),
+                  const SizedBox(width: 10),
+                  Expanded(child: SelectableText(item.note)),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           // Seri kartı
           Container(
