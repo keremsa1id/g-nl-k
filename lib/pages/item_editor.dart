@@ -11,6 +11,10 @@ const itemColors = <Color>[
   Color(0xFFFFB020),
   Color(0xFF9B5DE5),
   Color(0xFF2EC4B6),
+  Color(0xFF4DA3FF),
+  Color(0xFF66BB6A),
+  Color(0xFF5C6BC0),
+  Color(0xFFB0BEC5),
 ];
 
 /// Etkinlik ekleme / düzenleme alt sayfası. Kaydedince ScheduleItem döner.
@@ -48,6 +52,10 @@ class _ItemEditorState extends State<ItemEditor> {
   late List<_ReminderRow> _reminders;
   late int _color;
   int? _category;
+  String? _group; // kategori filtresi, null = tümü
+  bool _durationTouched = false;
+  DateTime? _endDate;
+  late final TextEditingController _note;
   String? _error;
 
   @override
@@ -55,6 +63,10 @@ class _ItemEditorState extends State<ItemEditor> {
     super.initState();
     final e = widget.existing;
     _title = TextEditingController(text: e?.title ?? '');
+    _note = TextEditingController(text: e?.note ?? '');
+    _endDate = e?.endDate;
+    _group = categoryOf(e?.category)?.group;
+    _durationTouched = e != null;
     _start = e?.startMinutes ?? widget.startMinutes;
     _duration = e?.durationMinutes ?? 60;
     _repeat = e?.repeat ?? Repeat.daily;
@@ -74,13 +86,40 @@ class _ItemEditorState extends State<ItemEditor> {
       // Başlık boşsa ya da önceki kategorinin adıysa yeni kategorinin adını yaz.
       if (t.isEmpty || t == prev) _title.text = categories[i].name;
       _category = _category == i ? null : i;
+      // Yeni etkinlikte süreye dokunulmadıysa kategorinin önerdiği süreyi kullan.
+      if (_category != null && !_durationTouched) _duration = categories[i].minutes;
       _error = null;
     });
+  }
+
+  /// Başlık bir kategorinin adıyla aynıysa (örn. "koşu") kategoriyi kendiliğinden seç.
+  void _onTitleChanged(String v) {
+    final match = categoryForTitle(v);
+    setState(() {
+      _error = null;
+      if (_category == null && match != null) {
+        _category = match;
+        _group = categories[match].group;
+        if (!_durationTouched) _duration = categories[match].minutes;
+      }
+    });
+  }
+
+  Future<void> _pickEndDate() async {
+    final d = await showDatePicker(
+      context: context,
+      helpText: 'Son gün',
+      initialDate: _endDate ?? DateTime(_date.year, _date.month + 1, _date.day),
+      firstDate: _date,
+      lastDate: DateTime(2100),
+    );
+    if (d != null && mounted) setState(() => _endDate = d);
   }
 
   @override
   void dispose() {
     _title.dispose();
+    _note.dispose();
     for (final r in _reminders) {
       r.note.dispose();
     }
@@ -95,6 +134,11 @@ class _ItemEditorState extends State<ItemEditor> {
     }
     if (_repeat == Repeat.weekly && _weekdays.isEmpty) {
       setState(() => _error = 'En az bir gün seç');
+      return;
+    }
+    final end = _repeat == Repeat.once ? null : _endDate;
+    if (end != null && dateOnly(end).isBefore(dateOnly(_date))) {
+      setState(() => _error = 'Bitiş tarihi başlangıçtan önce olamaz');
       return;
     }
     final maxDuration = 24 * 60 - _start;
@@ -113,6 +157,8 @@ class _ItemEditorState extends State<ItemEditor> {
         ],
         colorIndex: _color,
         category: _category,
+        endDate: end == null ? null : dateOnly(end),
+        note: _note.text.trim(),
       ),
     );
   }
@@ -148,22 +194,11 @@ class _ItemEditorState extends State<ItemEditor> {
               controller: _title,
               autofocus: widget.existing == null,
               textCapitalization: TextCapitalization.sentences,
+              onChanged: _onTitleChanged,
               decoration: const InputDecoration(labelText: 'Ne yapacaksın? (örn. Spor)'),
             ),
             const SizedBox(height: 16),
-            Text('Kategori', style: theme.textTheme.labelLarge),
-            const SizedBox(height: 8),
-            GridView.count(
-              crossAxisCount: 5,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 0.85,
-              children: [
-                for (var i = 0; i < categories.length; i++) _categoryTile(context, i),
-              ],
-            ),
+            _categorySection(context),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -190,7 +225,12 @@ class _ItemEditorState extends State<ItemEditor> {
                     expandedInsets: EdgeInsets.zero,
                     menuHeight: 300,
                     onSelected: (v) {
-                      if (v != null) setState(() => _duration = v);
+                      if (v != null) {
+                        setState(() {
+                          _duration = v;
+                          _durationTouched = true;
+                        });
+                      }
                     },
                     dropdownMenuEntries: [
                       for (var d = 30; d <= 12 * 60; d += 30)
@@ -221,6 +261,24 @@ class _ItemEditorState extends State<ItemEditor> {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
+                  for (final (label, days) in const [
+                    ('Hafta içi', {1, 2, 3, 4, 5}),
+                    ('Hafta sonu', {6, 7}),
+                    ('Pzt · Çar · Cum', {1, 3, 5}),
+                    ('Sal · Per', {2, 4}),
+                  ])
+                    ChoiceChip(
+                      label: Text(label, style: const TextStyle(fontSize: 12)),
+                      selected: _weekdays.length == days.length && _weekdays.containsAll(days),
+                      onSelected: (_) => setState(() => _weekdays = {...days}),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
                   for (var d = 1; d <= 7; d++)
                     FilterChip(
                       label: Text(trWeekdaysShort[d - 1]),
@@ -244,13 +302,43 @@ class _ItemEditorState extends State<ItemEditor> {
                   (_repeat == Repeat.monthly ? ' · her ayın ${_date.day}. günü' : '')),
               onTap: _pickDate,
             ),
+            if (_repeat != Repeat.once)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.event_busy_rounded),
+                title: const Text('Bitiş tarihi'),
+                subtitle: Text(_endDate == null
+                    ? 'Yok · süresiz devam eder'
+                    : '${fmtDate(_endDate!)} · ${dateOnly(_endDate!).difference(dateOnly(_date)).inDays + 1} gün'),
+                trailing: _endDate == null
+                    ? const Icon(Icons.add_rounded)
+                    : IconButton(
+                        tooltip: 'Bitiş tarihini kaldır',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => setState(() => _endDate = null),
+                      ),
+                onTap: _pickEndDate,
+              ),
             const SizedBox(height: 8),
             _remindersSection(context),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _note,
+              minLines: 1,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Not (isteğe bağlı)',
+                hintText: 'Adres, link, yapılacaklar…',
+                prefixIcon: Icon(Icons.sticky_note_2_outlined),
+              ),
+            ),
             const SizedBox(height: 16),
             Text('Renk', style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Wrap(
               spacing: 10,
+              runSpacing: 10,
               children: [
                 for (var i = 0; i < itemColors.length; i++)
                   GestureDetector(
@@ -291,6 +379,61 @@ class _ItemEditorState extends State<ItemEditor> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Grup filtresi + yatay kayan iki satırlık kategori ızgarası.
+  Widget _categorySection(BuildContext context) {
+    final theme = Theme.of(context);
+    final visible = [
+      for (var i = 0; i < categories.length; i++)
+        if (_group == null || categories[i].group == _group) i,
+    ];
+    final selected = categoryOf(_category);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('Kategori', style: theme.textTheme.labelLarge),
+            const Spacer(),
+            if (selected != null)
+              Text(selected.name,
+                  style: TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w700, color: itemColors[_color])),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final g in <String?>[null, ...categoryGroups])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ChoiceChip(
+                    label: Text(g ?? 'Tümü', style: const TextStyle(fontSize: 12)),
+                    selected: _group == g,
+                    onSelected: (_) => setState(() => _group = g),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 2 * 78 + 8,
+          child: GridView.count(
+            key: ValueKey(_group),
+            scrollDirection: Axis.horizontal,
+            crossAxisCount: 2,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 78 / 74,
+            children: [for (final i in visible) _categoryTile(context, i)],
+          ),
+        ),
+      ],
     );
   }
 

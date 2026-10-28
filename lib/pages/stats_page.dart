@@ -30,7 +30,9 @@ class StatsPage extends StatelessWidget {
   ];
 
   static Color _catColor(int? cat) =>
-      _chartColors[cat == null || cat < 0 || cat >= categories.length ? categories.length : cat];
+      cat == null || cat < 0 || cat >= categories.length
+          ? _chartColors.last
+          : _chartColors[cat % (_chartColors.length - 1)];
 
   static String _catName(int? cat) => categoryOf(cat)?.name ?? 'Diğer';
 
