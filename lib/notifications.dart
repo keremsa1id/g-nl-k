@@ -1,3 +1,4 @@
+import 'dart:typed_data' show Int64List;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -21,13 +22,17 @@ Future<void> notificationActionBackground(NotificationResponse r) async {
 
 class Notifier {
   static final _plugin = FlutterLocalNotificationsPlugin();
-  static const reminderBefore = Duration(minutes: 5);
   static const snoozeFor = Duration(minutes: 10);
   static const actionDone = 'done';
   static const actionSnooze = 'snooze';
 
-  static const streakGuardId = 900001;
-  static const weeklyReportId = 900002;
+  // Etkinlik bildirim id'leri: item.id * 100 + hatırlatma * 8 + haftanın günü (0..7),
+  // ertelenen hatırlatma: item.id * 100 + 99.
+  static const _perItem = 100;
+  static const _snoozeSlot = 99;
+  static const _maxReminders = 12;
+  static const streakGuardId = 2000000001;
+  static const weeklyReportId = 2000000002;
   static const reportPayload = 'report';
 
   /// Bildirimden bir etkinlik tamamlanınca artar; sayfalar dinleyip yenilenir.
@@ -36,26 +41,39 @@ class Notifier {
   /// Haftalık rapor bildirimine basınca İstatistikler'i açmak için.
   static final navigatorKey = GlobalKey<NavigatorState>();
 
-  static const _infoDetails = NotificationDetails(
+  /// Titreşim deseni (ms): bekle, titre, dur, titre, dur, uzun titre.
+  static final _vibration = Int64List.fromList([0, 400, 200, 400, 200, 800]);
+
+  static final _infoDetails = NotificationDetails(
     android: AndroidNotificationDetails(
-      'seri_rapor',
+      'seri_rapor_v2',
       'Seri ve rapor bildirimleri',
       channelDescription: 'Bozulmak üzere olan seriler ve haftalık rapor',
       importance: Importance.high,
       priority: Priority.high,
-      color: Color(0xFFE53935),
+      color: const Color(0xFFE53935),
+      enableVibration: true,
+      vibrationPattern: _vibration,
     ),
   );
 
-  static const _details = NotificationDetails(
+  static final _details = _itemDetails();
+
+  /// [bigText] verilirse bildirim aşağı çekilince çok satırlı görünür (notlar için).
+  static NotificationDetails _itemDetails([String? bigText]) => NotificationDetails(
     android: AndroidNotificationDetails(
-      'program_hatirlatma',
+      'program_hatirlatma_v2',
       'Program hatırlatmaları',
-      channelDescription: 'Programdaki etkinliklerden 5 dakika önce bildirim',
+      channelDescription: 'Programdaki etkinlikler için hatırlatmalar',
       importance: Importance.max,
       priority: Priority.high,
-      color: Color(0xFFE53935),
-      actions: [
+      color: const Color(0xFFE53935),
+      enableVibration: true,
+      vibrationPattern: _vibration,
+      playSound: true,
+      category: AndroidNotificationCategory.reminder,
+      styleInformation: bigText == null ? null : BigTextStyleInformation(bigText),
+      actions: const [
         AndroidNotificationAction(actionDone, '✅ Tamamlandı', cancelNotification: true),
         AndroidNotificationAction(actionSnooze, '⏰ 10 dk ertele', cancelNotification: true),
       ],
@@ -100,7 +118,7 @@ class Notifier {
   static Future<void> snooze(ScheduleItem item) async {
     if (kIsWeb) return;
     final when = tz.TZDateTime.now(tz.local).add(snoozeFor);
-    await _schedule(item.id * 10 + 8, 'Ertelendi: ${item.title}',
+    await _schedule(item.id * _perItem + _snoozeSlot, 'Ertelendi: ${item.title}',
         '${item.timeLabel} · tekrar hatırlatma', when, null, '${item.id}');
   }
 
@@ -172,6 +190,12 @@ class Notifier {
     final a = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     if (a == null) return;
+    // Titreşimsiz eski kanalları kaldır (kanal ayarları sonradan değiştirilemiyor).
+    for (final old in ['program_hatirlatma', 'seri_rapor']) {
+      try {
+        await a.deleteNotificationChannel(old);
+      } catch (_) {}
+    }
     await a.requestNotificationsPermission();
     final canExact = await a.canScheduleExactNotifications() ?? true;
     if (!canExact) await a.requestExactAlarmsPermission();
@@ -184,9 +208,10 @@ class Notifier {
 
   static Future<void> rescheduleAll(List<ScheduleItem> items) async {
     if (kIsWeb) return;
-    // Ertelenmiş hatırlatmalar (id % 10 == 8) korunur, diğerleri yeniden kurulur.
+    // Ertelenmiş hatırlatmalar korunur, diğerleri yeniden kurulur.
     for (final p in await _plugin.pendingNotificationRequests()) {
-      if (p.id % 10 != 8) await _plugin.cancel(p.id);
+      final snoozed = p.id < streakGuardId && p.id % _perItem == _snoozeSlot;
+      if (!snoozed) await _plugin.cancel(p.id);
     }
     for (final i in items) {
       await scheduleItem(i, cancelFirst: false);
@@ -196,40 +221,43 @@ class Notifier {
 
   static Future<void> cancelItem(ScheduleItem item) async {
     if (kIsWeb) return;
-    for (var k = 0; k <= 8; k++) {
-      await _plugin.cancel(item.id * 10 + k);
+    for (var k = 0; k < _perItem; k++) {
+      await _plugin.cancel(item.id * _perItem + k);
     }
   }
 
   static Future<void> scheduleItem(ScheduleItem item, {bool cancelFirst = true}) async {
     if (kIsWeb) return;
     if (cancelFirst) await cancelItem(item);
-    if (!item.notify) return;
 
-    switch (item.repeat) {
-      case Repeat.once:
-        final when = _nextReminder(item, (d) => sameDay(d, item.startDate));
-        if (when != null) await _zoned(item, item.id * 10, when, null);
-      case Repeat.daily:
-        final whenD = _nextReminder(item, (d) => true);
-        if (whenD != null) await _zoned(item, item.id * 10, whenD, DateTimeComponents.time);
-      case Repeat.weekly:
-        for (final wd in item.weekdays) {
-          final when = _nextReminder(item, (d) => d.weekday == wd);
-          if (when != null) {
-            await _zoned(item, item.id * 10 + wd, when, DateTimeComponents.dayOfWeekAndTime);
+    for (final (r, rem) in item.reminders.take(_maxReminders).indexed) {
+      final base = item.id * _perItem + r * 8;
+      switch (item.repeat) {
+        case Repeat.once:
+          final when = _nextReminder(item, rem, (d) => sameDay(d, item.startDate));
+          if (when != null) await _zoned(item, rem, base, when, null);
+        case Repeat.daily:
+          final when = _nextReminder(item, rem, (d) => true);
+          if (when != null) await _zoned(item, rem, base, when, DateTimeComponents.time);
+        case Repeat.weekly:
+          for (final wd in item.weekdays) {
+            final when = _nextReminder(item, rem, (d) => d.weekday == wd);
+            if (when != null) {
+              await _zoned(item, rem, base + wd, when, DateTimeComponents.dayOfWeekAndTime);
+            }
           }
-        }
-      case Repeat.monthly:
-        final whenM = _nextReminder(item, (d) => d.day == item.startDate.day);
-        if (whenM != null) {
-          await _zoned(item, item.id * 10, whenM, DateTimeComponents.dayOfMonthAndTime);
-        }
+        case Repeat.monthly:
+          final when = _nextReminder(item, rem, (d) => d.day == item.startDate.day);
+          if (when != null) {
+            await _zoned(item, rem, base, when, DateTimeComponents.dayOfMonthAndTime);
+          }
+      }
     }
   }
 
-  /// Etkinliğin bir sonraki gerçekleşmesinden 5 dk önceki an.
-  static tz.TZDateTime? _nextReminder(ScheduleItem item, bool Function(DateTime) match) {
+  /// Etkinliğin bir sonraki gerçekleşmesinden [rem] kadar önceki an.
+  static tz.TZDateTime? _nextReminder(
+      ScheduleItem item, Reminder rem, bool Function(DateTime) match) {
     final now = tz.TZDateTime.now(tz.local);
     var day = dateOnly(DateTime.now());
     final start = dateOnly(item.startDate);
@@ -239,21 +267,30 @@ class Notifier {
       if (!match(d)) continue;
       final event = tz.TZDateTime(tz.local, d.year, d.month, d.day,
           item.startMinutes ~/ 60, item.startMinutes % 60);
-      final remind = event.subtract(reminderBefore);
+      final remind = event.subtract(Duration(minutes: rem.minutesBefore));
       if (remind.isAfter(now)) return remind;
     }
     return null;
   }
 
-  static Future<void> _zoned(ScheduleItem item, int nid, tz.TZDateTime when,
+  static Future<void> _zoned(ScheduleItem item, Reminder rem, int nid, tz.TZDateTime when,
       DateTimeComponents? match) async {
-    await _schedule(nid, 'Yaklaşan: ${item.title}',
-        '5 dakika sonra başlıyor (${item.timeLabel})', when, match, '${item.id}');
+    final m = rem.minutesBefore;
+    final title = m == 0 ? 'Şimdi: ${item.title}' : 'Yaklaşan: ${item.title}';
+    final timing = m == 0
+        ? 'Başlıyor (${item.timeLabel})'
+        : m == 1440
+            ? 'Yarın saat ${fmtMinutes(item.startMinutes)}'
+            : '${fmtDuration(m)} sonra başlıyor (${item.timeLabel})';
+    final body = rem.note.isEmpty ? timing : '📝 ${rem.note}\n$timing';
+    await _schedule(nid, title, body, when, match, '${item.id}',
+        details: _itemDetails(body));
   }
 
   static Future<void> _schedule(int nid, String title, String body, tz.TZDateTime when,
       DateTimeComponents? match, String payload,
-      {NotificationDetails details = _details}) async {
+      {NotificationDetails? details}) async {
+    details ??= _details;
     try {
       await _plugin.zonedSchedule(nid, title, body, when, details,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,

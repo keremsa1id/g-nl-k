@@ -3,7 +3,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'notifications.dart';
 import 'pages/schedule_page.dart';
-import 'pages/smoke_page.dart';
+import 'pages/tracker_page.dart';
+import 'pages/tracker_setup.dart';
 import 'storage.dart';
 import 'theme.dart';
 
@@ -42,11 +43,14 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
-  int _index = 0;
+  final store = Store.instance;
+  int _index = 0; // 0 = Program, n = n'inci takip
+  late int _trackerCount = store.trackers.length;
 
   @override
   void initState() {
     super.initState();
+    store.trackersChanged.addListener(_onTrackersChanged);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Notifier.requestPermissions();
@@ -57,8 +61,22 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    store.trackersChanged.removeListener(_onTrackersChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Yeni takip eklenince onun sekmesine geç; kaldırılınca Program'a dön.
+  void _onTrackersChanged() {
+    final n = store.trackers.length;
+    setState(() {
+      if (n > _trackerCount) {
+        _index = n;
+      } else if (n < _trackerCount || _index > n) {
+        _index = 0;
+      }
+      _trackerCount = n;
+    });
   }
 
   // Uygulama kapalıyken bildirimden "Tamamlandı" basılmış olabilir.
@@ -72,15 +90,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final trackers = store.trackers;
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: const [SchedulePage(), SmokePage()],
+        children: [
+          const SchedulePage(),
+          for (final t in trackers) TrackerPage(key: ValueKey(t.id), trackerId: t.id),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
           child: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
@@ -94,16 +116,40 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             child: Row(
               children: [
                 _NavItem(
-                  icon: Icons.calendar_month_rounded,
+                  leading: Icon(Icons.calendar_month_rounded,
+                      color: _index == 0 ? Colors.white : AppTheme.scheme.onSurfaceVariant,
+                      size: 22),
                   label: 'Program',
+                  // Takip yoksa ya da seçiliyse yazı görünür; yoksa sadece simge.
+                  showLabel: _index == 0 || trackers.length < 2,
                   selected: _index == 0,
                   onTap: () => setState(() => _index = 0),
                 ),
-                _NavItem(
-                  icon: Icons.smoke_free_rounded,
-                  label: 'Sigara',
-                  selected: _index == 1,
-                  onTap: () => setState(() => _index = 1),
+                for (final (i, t) in trackers.indexed)
+                  _NavItem(
+                    leading: Text(t.emoji, style: const TextStyle(fontSize: 20)),
+                    label: t.name,
+                    showLabel: _index == i + 1 || trackers.length < 2,
+                    selected: _index == i + 1,
+                    onTap: () => setState(() => _index = i + 1),
+                  ),
+                const SizedBox(width: 4),
+                // Yeni takip ekle
+                Tooltip(
+                  message: 'Takip ekle',
+                  child: GestureDetector(
+                    onTap: () => showTrackerSetup(context),
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface3,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: const Icon(Icons.add_rounded, color: Colors.white),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -117,14 +163,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
 /// Yüzen alt menüdeki hap şeklindeki sekme.
 class _NavItem extends StatelessWidget {
   const _NavItem({
-    required this.icon,
+    required this.leading,
     required this.label,
+    required this.showLabel,
     required this.selected,
     required this.onTap,
   });
 
-  final IconData icon;
+  final Widget leading;
   final String label;
+  final bool showLabel;
   final bool selected;
   final VoidCallback onTap;
 
@@ -132,6 +180,7 @@ class _NavItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final fg = selected ? Colors.white : AppTheme.scheme.onSurfaceVariant;
     return Expanded(
+      flex: showLabel ? 3 : 2,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
@@ -139,6 +188,7 @@ class _NavItem extends StatelessWidget {
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: selected ? AppTheme.red : Colors.transparent,
             borderRadius: BorderRadius.circular(24),
@@ -149,13 +199,19 @@ class _NavItem extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: fg, size: 22),
-              const SizedBox(width: 8),
-              Text(label,
-                  style: TextStyle(
-                    color: fg,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  )),
+              leading,
+              if (showLabel) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: fg,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      )),
+                ),
+              ],
             ],
           ),
         ),

@@ -168,6 +168,33 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
               Expanded(child: _miniStat(context, 'En iyi seri', '$best', 'rekor')),
             ],
           ),
+          if (item.reminders.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const SectionLabel('Hatırlatmalar'),
+            Container(
+              decoration: BoxDecoration(
+                color: AppTheme.surface1,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppTheme.border),
+              ),
+              child: Column(
+                children: [
+                  for (final (idx, r) in item.reminders.indexed) ...[
+                    if (idx > 0) const Divider(indent: 56),
+                    ListTile(
+                      leading: Icon(Icons.notifications_active_rounded, color: c),
+                      title: Text(fmtOffset(r.minutesBefore),
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: r.note.isEmpty ? null : Text('📝 ${r.note}'),
+                      trailing: Text(
+                          fmtMinutes((item.startMinutes - r.minutesBefore) % 1440),
+                          style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           const SectionLabel('Son 15 hafta'),
           _heatmap(context, item, c, today),

@@ -6,18 +6,27 @@ import 'package:flutter/material.dart';
 import '../models.dart';
 import '../storage.dart';
 import '../theme.dart';
+import '../trackers.dart';
 import '../widgets.dart';
+import 'tracker_setup.dart';
+import 'tracker_stats_page.dart';
 
-class SmokePage extends StatefulWidget {
-  const SmokePage({super.key});
+/// Bir alışkanlık takibinin ana sayfası (sigara, alkol, gazlı içecek…).
+class TrackerPage extends StatefulWidget {
+  const TrackerPage({super.key, required this.trackerId});
+
+  final String trackerId;
 
   @override
-  State<SmokePage> createState() => _SmokePageState();
+  State<TrackerPage> createState() => _TrackerPageState();
 }
 
-class _SmokePageState extends State<SmokePage> {
+class _TrackerPageState extends State<TrackerPage> {
   final s = Store.instance;
   Timer? _ticker;
+
+  Tracker get t => s.trackerById(widget.trackerId)!;
+  String get _pack => t.packName.toLowerCase();
 
   static const _milestones = <(Duration, String)>[
     (Duration(hours: 1), '1 saat'),
@@ -52,10 +61,10 @@ class _SmokePageState extends State<SmokePage> {
 
   Future<void> _logSmoke([DateTime? at]) async {
     final t = at ?? DateTime.now();
-    setState(() => s.smokes
+    setState(() => this.t.events
       ..add(t)
       ..sort());
-    await s.saveSmoking();
+    await s.saveTrackers();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -69,7 +78,7 @@ class _SmokePageState extends State<SmokePage> {
     final t = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.now(),
-      helpText: 'Ne zaman içtin?',
+      helpText: 'Ne zaman?',
     );
     if (t == null) return;
     final now = DateTime.now();
@@ -79,19 +88,19 @@ class _SmokePageState extends State<SmokePage> {
   }
 
   Future<void> _removeSmoke(DateTime t) async {
-    setState(() => s.smokes.remove(t));
-    await s.saveSmoking();
+    setState(() => this.t.events.remove(t));
+    await s.saveTrackers();
   }
 
   Future<void> _startCounter() async {
-    setState(() => s.quitStart = DateTime.now());
-    await s.saveSmoking();
+    setState(() => t.quitStart = DateTime.now());
+    await s.saveTrackers();
   }
 
   Future<void> _addPack() async {
-    final priceCtrl = TextEditingController(text: '120');
+    final priceCtrl = TextEditingController(text: _num(t.packPrice));
     final countCtrl = TextEditingController(
-        text: (s.packs.isEmpty ? 20 : s.packs.last.count).toString());
+        text: (t.packs.isEmpty ? t.packSize : t.packs.last.count).toString());
     var qty = 1;
     final ok = await showDialog<bool>(
       context: context,
@@ -99,7 +108,7 @@ class _SmokePageState extends State<SmokePage> {
         builder: (ctx, setLocal) {
           final price = double.tryParse(priceCtrl.text.replaceAll(',', '.').trim()) ?? 0;
           return AlertDialog(
-            title: const Text('Paket aldım'),
+            title: Text('${t.packName} aldım'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -120,8 +129,8 @@ class _SmokePageState extends State<SmokePage> {
                           children: [
                             Text('$qty',
                                 style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-                            const Text('paket',
-                                style: TextStyle(fontSize: 12, color: Colors.white60)),
+                            Text(_pack,
+                                style: const TextStyle(fontSize: 12, color: Colors.white60)),
                           ],
                         ),
                       ),
@@ -134,13 +143,13 @@ class _SmokePageState extends State<SmokePage> {
                   controller: priceCtrl,
                   onChanged: (_) => setLocal(() {}),
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Paket fiyatı (₺)'),
+                  decoration: InputDecoration(labelText: '${t.packName} fiyatı (₺)'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: countCtrl,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Paketteki adet'),
+                  decoration: InputDecoration(labelText: 'Bir ${_pack} kaç ${t.unit}'),
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -158,7 +167,7 @@ class _SmokePageState extends State<SmokePage> {
               TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
               FilledButton(
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(qty > 1 ? '$qty paket ekle' : 'Ekle')),
+                  child: Text(qty > 1 ? '$qty $_pack ekle' : 'Ekle')),
             ],
           );
         },
@@ -166,14 +175,15 @@ class _SmokePageState extends State<SmokePage> {
     );
     if (ok != true) return;
     final price = double.tryParse(priceCtrl.text.replaceAll(',', '.').trim()) ?? 0;
-    final count = int.tryParse(countCtrl.text.trim()) ?? 20;
+    final count = int.tryParse(countCtrl.text.trim()) ?? t.packSize;
     final now = DateTime.now();
     setState(() {
       for (var i = 0; i < qty; i++) {
-        s.packs.add(PackPurchase(time: now, price: price, count: count <= 0 ? 20 : count));
+        t.packs.add(PackPurchase(time: now, price: price, count: count <= 0 ? t.packSize : count));
       }
+      t.packPrice = price; // sonraki alımda bu fiyat gelsin
     });
-    await s.saveSmoking();
+    await s.saveTrackers();
   }
 
   Widget _stepButton(IconData icon, VoidCallback? onTap) => IconButton.filled(
@@ -189,8 +199,28 @@ class _SmokePageState extends State<SmokePage> {
       );
 
   Future<void> _removePack(PackPurchase p) async {
-    setState(() => s.packs.remove(p));
-    await s.saveSmoking();
+    setState(() => t.packs.remove(p));
+    await s.saveTrackers();
+  }
+
+  Future<void> _edit() async {
+    final edited = await showTrackerSetup(context, existing: t);
+    if (edited != null && mounted) setState(() {});
+  }
+
+  Future<void> _remove() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${t.name} takibi kaldırılsın mı?'),
+        content: const Text('Bu takibe ait bütün kayıtlar silinecek.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Kaldır')),
+        ],
+      ),
+    );
+    if (ok == true) await s.removeTracker(t);
   }
 
   // ---------- Biçimlendirme ----------
@@ -232,34 +262,37 @@ class _SmokePageState extends State<SmokePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final now = DateTime.now();
-    final start = s.counterStart;
+    // Takip az önce kaldırıldıysa alt menü yenilenene kadar boş çiz.
+    if (s.trackerById(widget.trackerId) == null) return const SizedBox.shrink();
+    final t = this.t;
+    final start = t.counterStart;
     final elapsed = start == null ? null : now.difference(start);
 
-    final today = s.smokes.where((t) => sameDay(t, now)).length;
+    final today = t.countOn(now);
     final weekAgo = now.subtract(const Duration(days: 7));
-    final week = s.smokes.where((t) => t.isAfter(weekAgo)).length;
+    final week = t.events.where((e) => e.isAfter(weekAgo)).length;
 
     var longest = elapsed ?? Duration.zero;
-    for (var i = 1; i < s.smokes.length; i++) {
-      final g = s.smokes[i].difference(s.smokes[i - 1]);
+    for (var i = 1; i < t.events.length; i++) {
+      final g = t.events[i].difference(t.events[i - 1]);
       if (g > longest) longest = g;
     }
 
-    final totalBought = s.packs.fold<int>(0, (a, p) => a + p.count);
-    final totalSpent = s.packs.fold<double>(0, (a, p) => a + p.price);
+    final totalBought = t.packs.fold<int>(0, (a, p) => a + p.count);
+    final totalSpent = t.packs.fold<double>(0, (a, p) => a + p.price);
     int? remaining;
-    if (s.packs.isNotEmpty) {
-      final first = s.packs.first.time;
-      final used = s.smokes.where((t) => !t.isBefore(first)).length;
+    if (t.packs.isNotEmpty) {
+      final first = t.packs.first.time;
+      final used = t.events.where((e) => !e.isBefore(first)).length;
       final r = totalBought - used;
       remaining = r < 0 ? 0 : r;
     }
 
-    // Geçmiş: her gün için içilen sigaralar ve alınan paketler (son 30 gün).
+    // Geçmiş: her gün için kayıtlar ve alımlar (son 30 gün).
     final days = <DateTime>{
       dateOnly(now), // bugün her zaman görünsün
-      for (final t in s.smokes) dateOnly(t),
-      for (final p in s.packs) dateOnly(p.time),
+      for (final e in t.events) dateOnly(e),
+      for (final p in t.packs) dateOnly(p.time),
     }.toList()
       ..sort((a, b) => b.compareTo(a));
 
@@ -269,8 +302,46 @@ class _SmokePageState extends State<SmokePage> {
         child: Column(
           children: [
             PageHeader(
-              eyebrow: 'Sigarayı bırak',
+              eyebrow: '${t.emoji}  ${t.name} takibi',
               title: elapsed == null ? 'Hazır mısın?' : 'Temiz kalıyorsun',
+              actions: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface2,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (v) => switch (v) {
+                      'stats' => Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => TrackerStatsPage(trackerId: t.id))),
+                      'edit' => _edit(),
+                      _ => _remove(),
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                          value: 'stats',
+                          child: ListTile(
+                              leading: Icon(Icons.insights_rounded),
+                              title: Text('Detaylı istatistik'))),
+                      PopupMenuItem(
+                          value: 'edit',
+                          child: ListTile(
+                              leading: Icon(Icons.tune_rounded), title: Text('Takibi düzenle'))),
+                      PopupMenuItem(
+                          value: 'remove',
+                          child: ListTile(
+                              leading: Icon(Icons.delete_outline_rounded),
+                              title: Text('Takibi kaldır'))),
+                    ],
+                  ),
+                ),
+              ],
             ),
             Expanded(
               child: ListView(
@@ -299,10 +370,11 @@ class _SmokePageState extends State<SmokePage> {
                           ),
                           onPressed: _logSmoke,
                           onLongPress: _logPastSmoke,
-                          icon: const Icon(Icons.smoking_rooms_rounded),
-                          label: const Text('Sigara içtim'),
+                          icon: Text(t.emoji, style: const TextStyle(fontSize: 20)),
+                          label: Text(t.logLabel),
                         ),
                       ),
+                      if (t.tracksPurchases) ...[
                       const SizedBox(width: 10),
                       SizedBox(
                         width: 60,
@@ -316,25 +388,35 @@ class _SmokePageState extends State<SmokePage> {
                           child: const Icon(Icons.add_shopping_cart_rounded),
                         ),
                       ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('Geçmiş bir saati girmek için "Sigara içtim"e basılı tut.',
+                  Text('Geçmiş bir saati girmek için "${t.logLabel}" butonuna basılı tut.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                   const SizedBox(height: 24),
                   // İstatistikler (bento)
-                  const SectionLabel('İstatistikler'),
+                  SectionLabel(
+                    'İstatistikler',
+                    trailing: TextButton.icon(
+                      onPressed: () => Navigator.push(context,
+                          MaterialPageRoute<void>(
+                              builder: (_) => TrackerStatsPage(trackerId: t.id))),
+                      icon: const Icon(Icons.insights_rounded, size: 18),
+                      label: const Text('Detaylı'),
+                    ),
+                  ),
                   Row(
                     children: [
-                      Expanded(child: _stat(context, 'Bugün', '$today', 'sigara')),
+                      Expanded(child: _stat(context, 'Bugün', '$today', t.unit)),
                       const SizedBox(width: 10),
                       Expanded(
                           child: _stat(context, '7 gün', '$week',
                               'ort. ${(week / 7).toStringAsFixed(1)}/gün')),
                       const SizedBox(width: 10),
-                      Expanded(child: _stat(context, 'Toplam', '${s.smokes.length}', 'kayıt')),
+                      Expanded(child: _stat(context, 'Toplam', '${t.events.length}', 'kayıt')),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -346,16 +428,18 @@ class _SmokePageState extends State<SmokePage> {
                     sub: 'kişisel rekorun',
                     highlight: true,
                   ),
-                  const SizedBox(height: 10),
-                  _wideStat(
-                    context,
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: 'Paketler',
-                    value: '${_num(totalSpent)} ₺',
-                    sub: '${s.packs.length} paket alındı · '
-                        '${remaining == null ? 'kalan bilinmiyor' : 'tahmini $remaining adet kaldı'}',
-                    onTap: _addPack,
-                  ),
+                  if (t.tracksPurchases) ...[
+                    const SizedBox(height: 10),
+                    _wideStat(
+                      context,
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: '${t.packName} alımları',
+                      value: '${_num(totalSpent)} ₺',
+                      sub: '${t.packs.length} $_pack alındı · '
+                          '${remaining == null ? 'kalan bilinmiyor' : 'tahmini $remaining ${t.unit} kaldı'}',
+                      onTap: _addPack,
+                    ),
+                  ],
                   const SizedBox(height: 28),
                   const SectionLabel('Geçmiş'),
                   for (final day in days.take(30)) _dayCard(context, day, now),
@@ -384,7 +468,7 @@ class _SmokePageState extends State<SmokePage> {
       center = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.smoke_free_rounded, size: 40, color: AppTheme.redBright),
+          Text(t.emoji, style: const TextStyle(fontSize: 40)),
           const SizedBox(height: 8),
           Text('Henüz kayıt yok', style: theme.textTheme.titleMedium),
           const SizedBox(height: 14),
@@ -633,14 +717,15 @@ class _SmokePageState extends State<SmokePage> {
     );
   }
 
-  /// Bir günün özeti: tek "Sigara" satırı ve tek "Paket" satırı, sayılarıyla.
+  /// Bir günün özeti: tek kayıt satırı ve tek alım satırı, sayılarıyla.
   Widget _dayCard(BuildContext context, DateTime day, DateTime now) {
     final theme = Theme.of(context);
     final isToday = sameDay(day, now);
-    final smokes = s.smokes.where((t) => sameDay(t, day)).toList();
-    final packs = s.packs.where((p) => sameDay(p.time, day)).toList();
+    final t = this.t;
+    final smokes = t.events.where((e) => sameDay(e, day)).toList();
+    final packs = t.packs.where((p) => sameDay(p.time, day)).toList();
     final spent = packs.fold<double>(0, (a, p) => a + p.price);
-    final times = smokes.reversed.map((t) => '${two(t.hour)}:${two(t.minute)}').toList();
+    final times = smokes.reversed.map((e) => '${two(e.hour)}:${two(e.minute)}').toList();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -659,32 +744,34 @@ class _SmokePageState extends State<SmokePage> {
                 if (smokes.isNotEmpty || isToday)
                   _summaryRow(
                     context,
-                    icon: Icons.smoking_rooms_rounded,
+                    icon: Text(t.emoji, style: const TextStyle(fontSize: 20)),
                     accent: true,
-                    title: 'Sigara',
+                    title: t.name,
                     subtitle: times.isEmpty
-                        ? 'Bugün hiç içilmedi 👏'
+                        ? 'Bugün hiç yok 👏'
                         : times.length > 6
                             ? '${times.take(6).join(', ')} …'
                             : times.join(', '),
                     count: smokes.length,
-                    unit: 'adet',
+                    unit: t.unit,
                     onMinus: smokes.isEmpty ? null : () => _removeSmoke(smokes.last),
                     onPlus: isToday ? _logSmoke : null,
                   ),
-                if ((smokes.isNotEmpty || isToday) && (packs.isNotEmpty || isToday))
+                if (t.tracksPurchases &&
+                    (smokes.isNotEmpty || isToday) &&
+                    (packs.isNotEmpty || isToday))
                   const Divider(indent: 64),
-                if (packs.isNotEmpty || isToday)
+                if (t.tracksPurchases && (packs.isNotEmpty || isToday))
                   _summaryRow(
                     context,
-                    icon: Icons.shopping_bag_outlined,
+                    icon: const Icon(Icons.shopping_bag_outlined, size: 20),
                     accent: false,
-                    title: 'Paket',
+                    title: t.packName,
                     subtitle: packs.isEmpty
-                        ? 'Paket alınmadı'
-                        : '${packs.first.count}\'lik · ${_num(spent)} ₺',
+                        ? '${t.packName} alınmadı'
+                        : '${packs.first.count} ${t.unit} · ${_num(spent)} ₺',
                     count: packs.length,
-                    unit: 'paket',
+                    unit: _pack,
                     onMinus: packs.isEmpty ? null : () => _removePack(packs.last),
                     onPlus: isToday ? _addPack : null,
                   ),
@@ -698,7 +785,7 @@ class _SmokePageState extends State<SmokePage> {
 
   Widget _summaryRow(
     BuildContext context, {
-    required IconData icon,
+    required Widget icon,
     required bool accent,
     required String title,
     required String subtitle,
@@ -719,8 +806,11 @@ class _SmokePageState extends State<SmokePage> {
               color: accent ? AppTheme.red.withValues(alpha: 0.15) : AppTheme.surface3,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon,
-                size: 20, color: accent ? AppTheme.redBright : scheme.onSurfaceVariant),
+            alignment: Alignment.center,
+            child: IconTheme(
+              data: IconThemeData(color: accent ? AppTheme.redBright : scheme.onSurfaceVariant),
+              child: icon,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

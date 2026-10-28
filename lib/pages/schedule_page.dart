@@ -12,7 +12,9 @@ import '../theme.dart';
 import '../widgets.dart';
 import 'item_detail_page.dart';
 import 'item_editor.dart';
+import 'journal_page.dart';
 import 'stats_page.dart';
+import 'tracker_setup.dart';
 import 'week_view_page.dart';
 
 class SchedulePage extends StatefulWidget {
@@ -33,8 +35,9 @@ class _SchedulePageState extends State<SchedulePage> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    final slot = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
-    _scroll = ScrollController(initialScrollOffset: (slot - 2).clamp(0, 47).toDouble() * slotHeight);
+    // Görünen satırlar arasında şu anki saatin 1 saat öncesine kaydır.
+    final idx = _visibleSlots(_dayItems).where((sl) => sl ~/ 2 < now.hour - 1).length;
+    _scroll = ScrollController(initialScrollOffset: idx * slotHeight);
     Notifier.changes.addListener(_refresh);
     _tick = Timer.periodic(const Duration(minutes: 1), (_) => _refresh());
   }
@@ -164,6 +167,24 @@ class _SchedulePageState extends State<SchedulePage> {
               : '${t.emoji} ${t.name}: ${added.length} etkinlik eklendi (her gün)')));
   }
 
+  /// Görünen yarım saatlik satırlar: tüm tam saatler + yalnızca etkinlik başlayan buçuklar.
+  static List<int> _visibleSlots(List<ScheduleItem> items) {
+    final halfStarts = {
+      for (final i in items)
+        if (i.startMinutes % 60 == 30) i.startMinutes ~/ 30,
+    };
+    return [
+      for (var sl = 0; sl < 48; sl++)
+        if (sl.isEven || halfStarts.contains(sl)) sl,
+    ];
+  }
+
+  Future<void> _openJournal() async {
+    await Navigator.push(
+        context, MaterialPageRoute<void>(builder: (_) => JournalPage(day: _day)));
+    if (mounted) setState(() {});
+  }
+
   List<ScheduleItem> get _dayItems =>
       store.items.where((i) => i.occursOn(_day)).toList()
         ..sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
@@ -244,7 +265,10 @@ class _SchedulePageState extends State<SchedulePage> {
     final items = _dayItems;
     final now = DateTime.now();
     final isToday = sameDay(_day, now);
-    final nowSlot = now.hour * 2 + (now.minute >= 30 ? 1 : 0);
+    final slots = _visibleSlots(items);
+    // Buçuk satırı gizliyse "şimdi" vurgusu tam saat satırında kalır.
+    final halfNow = now.hour * 2 + 1;
+    final nowSlot = now.minute >= 30 && slots.contains(halfNow) ? halfNow : now.hour * 2;
 
     return Scaffold(
       body: SafeArea(
@@ -281,6 +305,7 @@ class _SchedulePageState extends State<SchedulePage> {
                       'week' => _openWeek(),
                       'templates' => _showTemplates(),
                       'stats' => _openStats(),
+                      'tracker' => showTrackerSetup(context),
                       _ => Notifier.showTest(),
                     },
                     itemBuilder: (_) => const [
@@ -300,6 +325,11 @@ class _SchedulePageState extends State<SchedulePage> {
                               leading: Icon(Icons.insights_rounded),
                               title: Text('İstatistikler'))),
                       PopupMenuItem(
+                          value: 'tracker',
+                          child: ListTile(
+                              leading: Icon(Icons.add_task_rounded),
+                              title: Text('Takip ekle (sigara, alkol…)'))),
+                      PopupMenuItem(
                           value: 'test',
                           child: ListTile(
                               leading: Icon(Icons.notifications_none_rounded),
@@ -315,9 +345,10 @@ class _SchedulePageState extends State<SchedulePage> {
               child: ListView.builder(
                 controller: _scroll,
                 padding: const EdgeInsets.only(bottom: 96),
-                itemCount: 48,
-                itemBuilder: (ctx, slot) =>
-                    _slot(ctx, slot, items, isToday && slot == nowSlot),
+                itemCount: slots.length + 1,
+                itemBuilder: (ctx, k) => k == slots.length
+                    ? _dayFooter(ctx, items, isToday, now)
+                    : _slot(ctx, slots[k], items, isToday && slots[k] == nowSlot),
               ),
             ),
           ],
@@ -723,6 +754,12 @@ class _SchedulePageState extends State<SchedulePage> {
                             const SizedBox(width: 4),
                             Icon(Icons.notifications_active_rounded,
                                 size: 13, color: theme.colorScheme.onSurfaceVariant),
+                            if (i.reminders.length > 1)
+                              Text('${i.reminders.length}',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: theme.colorScheme.onSurfaceVariant)),
                           ],
                         ],
                       ),
@@ -807,6 +844,229 @@ class _SchedulePageState extends State<SchedulePage> {
         ),
         child: Icon(Icons.check_rounded,
             size: 20, color: done ? Colors.white : c.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+
+  /// Listenin en altı: gün özeti ve günlük.
+  Widget _dayFooter(BuildContext context, List<ScheduleItem> items, bool isToday, DateTime now) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final today = dateOnly(now);
+    final past = _day.isBefore(today);
+    final doneItems = items.where((i) => store.isDone(i, _day)).toList();
+    final openItems = items.where((i) => !store.isDone(i, _day)).toList();
+    final plannedMin = items.fold<int>(0, (a, i) => a + i.durationMinutes);
+    final doneMin = doneItems.fold<int>(0, (a, i) => a + i.durationMinutes);
+
+    // Takipler: o günkü sayı ve önceki 7 günün ortalaması
+    final trackerStats = [
+      for (final t in store.trackers)
+        (
+          t,
+          t.countOn(_day),
+          [for (var k = 1; k <= 7; k++) t.countOn(DateTime(_day.year, _day.month, _day.day - k))]
+                  .fold<int>(0, (a, b) => a + b) /
+              7,
+        ),
+    ];
+
+    // En uzun seri
+    ScheduleItem? topItem;
+    var topStreak = 0;
+    for (final i in items) {
+      final n = store.streak(i, _day);
+      if (n > topStreak) {
+        topStreak = n;
+        topItem = i;
+      }
+    }
+
+    final journal = store.journalFor(_day);
+    final box = BoxDecoration(
+      color: AppTheme.surface1,
+      borderRadius: BorderRadius.circular(22),
+      border: Border.all(color: AppTheme.border),
+    );
+
+    Widget stat(IconData icon, Color color, String value, String label) => Expanded(
+          child: Column(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(height: 4),
+              Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              Text(label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 10, color: muted)),
+            ],
+          ),
+        );
+
+    Widget chip(ScheduleItem i, bool done) {
+      final c = itemColors[i.colorIndex % itemColors.length];
+      return Container(
+        padding: const EdgeInsets.fromLTRB(6, 4, 10, 4),
+        decoration: BoxDecoration(
+          color: done ? c.withValues(alpha: 0.18) : AppTheme.surface3,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(done ? Icons.check_circle_rounded : (categoryOf(i.category)?.icon ?? Icons.circle_outlined),
+                size: 14, color: done ? c : muted),
+            const SizedBox(width: 4),
+            Text(i.title,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: done ? null : muted,
+                )),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 20, 12, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SectionLabel('Gün özeti'),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: box,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    stat(Icons.task_alt_rounded, AppTheme.redBright,
+                        '${doneItems.length}/${items.length}', 'tamamlandı'),
+                    stat(Icons.schedule_rounded, const Color(0xFF4DA3FF),
+                        fmtDuration(doneMin), '${fmtDuration(plannedMin)} planlı'),
+                    stat(Icons.local_fire_department_rounded, flameColor(topStreak),
+                        '$topStreak', topItem == null ? 'seri' : topItem.title),
+                  ],
+                ),
+                if (trackerStats.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final (t, n, avg) in trackerStats)
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(8, 5, 10, 5),
+                          decoration: BoxDecoration(
+                            color: (n <= avg ? const Color(0xFF2EC4B6) : AppTheme.red)
+                                .withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(t.emoji, style: const TextStyle(fontSize: 14)),
+                              const SizedBox(width: 6),
+                              Text('$n ${t.unit}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: n <= avg ? const Color(0xFF2EC4B6) : AppTheme.redBright,
+                                  )),
+                              Text(' · ort. ${avg.toStringAsFixed(1)}',
+                                  style: TextStyle(fontSize: 11, color: muted)),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                if (doneItems.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text('Tamamlananlar',
+                      style: TextStyle(fontSize: 12, color: muted, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, runSpacing: 6, children: [for (final i in doneItems) chip(i, true)]),
+                ],
+                if (openItems.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(past ? 'Kaçırılanlar' : 'Kalanlar',
+                      style: TextStyle(fontSize: 12, color: muted, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 6, runSpacing: 6, children: [for (final i in openItems) chip(i, false)]),
+                ],
+                if (items.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text('Bu gün için planlanmış etkinlik yok.',
+                        style: TextStyle(color: muted)),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          SectionLabel('Günlük',
+              trailing: journal == null
+                  ? null
+                  : Text(journal.mood == null ? '' : moods[journal.mood!].$2,
+                      style: TextStyle(fontSize: 12, color: muted))),
+          Material(
+            color: AppTheme.surface1,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(
+                  color: journal == null ? AppTheme.border : AppTheme.red.withValues(alpha: 0.4)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: _openJournal,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: AppTheme.red.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: journal?.mood != null
+                          ? Text(moods[journal!.mood!].$1, style: const TextStyle(fontSize: 26))
+                          : const Icon(Icons.edit_note_rounded, color: AppTheme.redBright, size: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                              journal == null
+                                  ? (isToday ? 'Bugün nasıl geçti?' : 'Bu güne not düş')
+                                  : 'Günlüğün',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 4),
+                          Text(
+                            journal == null || journal.text.trim().isEmpty
+                                ? 'Düşüncelerini, ruh halini ve günün notlarını yazmak için dokun.'
+                                : journal.text.trim(),
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: muted, height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: muted),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
+import 'trackers.dart';
 
 /// Tüm veriler telefonda (SharedPreferences) JSON olarak saklanır.
 class Store {
@@ -12,10 +14,12 @@ class Store {
   late SharedPreferences _p;
 
   List<ScheduleItem> items = [];
-  List<DateTime> smokes = [];
-  List<PackPurchase> packs = [];
-  DateTime? quitStart; // sigara kaydı olmadan sayacı başlatmak için
+  List<Tracker> trackers = []; // sigara, alkol… takipleri (alt menüde sekme olarak)
+
+  /// Takip eklenince / kaldırılınca artar; alt menü dinleyip yenilenir.
+  final trackersChanged = ValueNotifier<int>(0);
   Map<int, Set<String>> done = {}; // etkinlik id -> tamamlandığı günler (dayKey)
+  Map<String, JournalEntry> journal = {}; // dayKey -> günlük
   int _nextId = 1;
 
   Future<void> load() async {
@@ -24,17 +28,31 @@ class Store {
     items = _decode(_p.getString('items'))
         .map((e) => ScheduleItem.fromJson(e as Map<String, dynamic>))
         .toList();
-    smokes = _decode(_p.getString('smokes'))
-        .map((e) => DateTime.parse(e as String))
-        .toList()
-      ..sort();
-    packs = _decode(_p.getString('packs'))
-        .map((e) => PackPurchase.fromJson(e as Map<String, dynamic>))
-        .toList()
-      ..sort((a, b) => a.time.compareTo(b.time));
-    final q = _p.getString('quitStart');
-    quitStart = q == null ? null : DateTime.tryParse(q);
+    if (_p.containsKey('trackers')) {
+      trackers = _decode(_p.getString('trackers'))
+          .map((e) => Tracker.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } else {
+      await _migrateSmoking();
+    }
     _loadDone();
+    journal = {};
+    try {
+      final m = jsonDecode(_p.getString('journal') ?? '{}') as Map<String, dynamic>;
+      m.forEach((k, v) => journal[k] = JournalEntry.fromJson(v as Map<String, dynamic>));
+    } catch (_) {}
+  }
+
+  JournalEntry? journalFor(DateTime day) => journal[dayKey(day)];
+
+  Future<void> setJournal(DateTime day, JournalEntry entry) {
+    if (entry.isEmpty) {
+      journal.remove(dayKey(day));
+    } else {
+      journal[dayKey(day)] = entry;
+    }
+    return _p.setString(
+        'journal', jsonEncode(journal.map((k, v) => MapEntry(k, v.toJson()))));
   }
 
   /// Bildirimden (arka planda) yapılan değişiklikleri okumak için.
@@ -143,22 +161,39 @@ class Store {
   Future<void> saveItems() =>
       _p.setString('items', jsonEncode(items.map((e) => e.toJson()).toList()));
 
-  Future<void> saveSmoking() async {
-    await _p.setString(
-        'smokes', jsonEncode(smokes.map((e) => e.toIso8601String()).toList()));
-    await _p.setString('packs', jsonEncode(packs.map((e) => e.toJson()).toList()));
-    if (quitStart == null) {
-      await _p.remove('quitStart');
-    } else {
-      await _p.setString('quitStart', quitStart!.toIso8601String());
-    }
+  Future<void> saveTrackers() =>
+      _p.setString('trackers', jsonEncode(trackers.map((t) => t.toJson()).toList()));
+
+  Tracker? trackerById(String id) => trackers.where((t) => t.id == id).firstOrNull;
+
+  Future<void> addTracker(Tracker t) async {
+    trackers.add(t);
+    await saveTrackers();
+    trackersChanged.value++;
   }
 
-  /// Sayacın başladığı an: son sigara veya manuel başlangıç (hangisi sonraysa).
-  DateTime? get counterStart {
-    final last = smokes.isEmpty ? null : smokes.last;
-    if (last == null) return quitStart;
-    if (quitStart == null) return last;
-    return last.isAfter(quitStart!) ? last : quitStart;
+  Future<void> removeTracker(Tracker t) async {
+    trackers.remove(t);
+    await saveTrackers();
+    trackersChanged.value++;
+  }
+
+  /// Eski sürümdeki sabit sigara verisi varsa "Sigara" takibine taşınır.
+  Future<void> _migrateSmoking() async {
+    final smokes = _decode(_p.getString('smokes')).map((e) => DateTime.parse(e as String)).toList()
+      ..sort();
+    final packs = _decode(_p.getString('packs'))
+        .map((e) => PackPurchase.fromJson(e as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => a.time.compareTo(b.time));
+    final quit = DateTime.tryParse(_p.getString('quitStart') ?? '');
+    trackers = [];
+    if (smokes.isNotEmpty || packs.isNotEmpty || quit != null) {
+      trackers.add(trackerPresets.first.create('sigara')
+        ..events.addAll(smokes)
+        ..packs.addAll(packs)
+        ..quitStart = quit);
+    }
+    await saveTrackers();
   }
 }
