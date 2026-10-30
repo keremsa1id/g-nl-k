@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../game.dart';
 import '../theme.dart';
+import 'games_action.dart';
 
 /// Mini oyun tanımı: kart ve sayfa.
 class MiniGame {
@@ -23,6 +24,14 @@ final miniGames = <MiniGame>[
       '5–30 XP', () => const BalloonGame()),
   MiniGame('🃏', 'Hafıza kartları', 'Eşleri bul; ne kadar az hamle, o kadar çok XP.',
       '12–30 XP', () => const MemoryGame()),
+  MiniGame('🌠', 'Engelden kaç', 'Sürükleyerek düşenlerden kaç, yıldız topla. 3 canın var.',
+      '5–30 XP', () => const DodgeGame()),
+  MiniGame('🎯', 'Hedef vur', 'Hedefler kaybolmadan vur, seri yap, 💣\'ye dokunma.', '5–30 XP',
+      () => const TargetGame()),
+  MiniGame('🏃', 'Zıpla koş', 'Dokun ve zıpla; kaktüsleri aş, kuşların altından geç.',
+      '5–30 XP', () => const RunnerGame()),
+  MiniGame('⚡', 'Refleks', 'Ekran yeşil olunca dokun; 5 turda tepki süreni ölç.', '10–25 XP',
+      () => const ReactionGame()),
 ];
 
 void openGame(BuildContext context, MiniGame g) =>
@@ -130,7 +139,7 @@ class GameCards extends StatelessWidget {
 }
 
 /// Oyun bitince XP verir ve sonucu gösterir.
-Future<void> _finish(BuildContext context, String game, int xp, String message) async {
+Future<void> finishGame(BuildContext context, String game, int xp, String message) async {
   final given = await Game.instance.awardGame(game, xp);
   if (!context.mounted) return;
   await showDialog<void>(
@@ -182,7 +191,7 @@ class _BreathingGameState extends State<BreathingGame> with SingleTickerProvider
         _c.forward(from: 0);
       } else {
         setState(() => _running = false);
-        await _finish(context, 'Nefes', 15, '$_rounds tur nefes egzersizini tamamladın.');
+        await finishGame(context, 'Nefes', 15, '$_rounds tur nefes egzersizini tamamladın.');
         if (mounted) setState(() => _round = 0);
       }
     });
@@ -369,7 +378,7 @@ class _BalloonGameState extends State<BalloonGame> with SingleTickerProviderStat
     _clock.stop();
     setState(() => _running = false);
     final xp = (5 + _score ~/ 2).clamp(5, 30);
-    await _finish(context, 'Balon patlat', xp, '$_popped balon patlattın, puanın $_score.');
+    await finishGame(context, 'Balon patlat', xp, '$_popped balon patlattın, puanın $_score.');
   }
 
   @override
@@ -485,7 +494,7 @@ class _MemoryGameState extends State<MemoryGame> {
                 : _moves <= 20
                     ? 18
                     : 12;
-        await _finish(context, 'Hafıza kartları', xp, '$_moves hamlede bitirdin.');
+        await finishGame(context, 'Hafıza kartları', xp, '$_moves hamlede bitirdin.');
         if (mounted) setState(_reset);
       }
     } else {
