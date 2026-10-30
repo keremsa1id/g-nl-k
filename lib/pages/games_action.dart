@@ -631,16 +631,16 @@ class _RunnerGameState extends State<RunnerGame> with SingleTickerProviderStateM
               Positioned(
                 left: 60,
                 top: ground - _player - _y,
-                child: const SizedBox(
+                child: SizedBox(
                   width: _player,
                   height: _player,
                   child: Center(
                     child: Transform.flip(
                       flipX: true,
-                      child: Text('🏃', style: TextStyle(fontSize: 40)),
-                     ),
+                      child: const Text('🏃', style: TextStyle(fontSize: 40)),
                     ),
                   ),
+                ),
               ),
               if (!_running)
                 _startOverlay(
