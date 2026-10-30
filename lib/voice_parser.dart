@@ -41,10 +41,13 @@ const _units = {
 };
 const _tens = {'on': 10, 'yirmi': 20, 'otuz': 30, 'kırk': 40, 'elli': 50};
 
-/// Sayı sözcüklerinin "-de/-da/-te/-ta" almış halleri: "onda", "yedide", "üçte"...
+/// Saat bildiren ekli sayı sözcükleri: "ikide", "onda" (-de/-da) ve "ikiye", "dörde" (-e/-a).
+/// "ona" (10'a) "ona söyle" ile karıştığı için yalnızca "saat ona" ise sayılır.
 const _locativeNumbers = {
   'birde': 1, 'ikide': 2, 'üçte': 3, 'dörtte': 4, 'beşte': 5, 'altıda': 6,
   'yedide': 7, 'sekizde': 8, 'dokuzda': 9, 'onda': 10,
+  'bire': 1, 'ikiye': 2, 'üçe': 3, 'dörde': 4, 'beşe': 5, 'altıya': 6,
+  'yediye': 7, 'sekize': 8, 'dokuza': 9,
 };
 
 const _months = [
@@ -120,7 +123,9 @@ class _Tok {
   bool used = false;
 }
 
-final _timeRe = RegExp(r"^(\d{1,2})(?:[:.](\d{2}))?(?:'?(da|de|ta|te|dan|den))?$");
+/// "10", "10'da", "2'ye", "14:30'da", "22.00" — "-dan/-den" (…den itibaren) saat bildirmez.
+final _timeRe =
+    RegExp(r"^(\d{1,2})(?:[:.](\d{2}))?(?:'?(da|de|ta|te|ya|ye|a|e|dan|den|tan|ten))?$");
 final _numRe = RegExp(r"^(\d+)(?:'?[a-zçğıöşü]*)?$");
 
 List<_Tok> _tokenize(String text) {
@@ -149,6 +154,10 @@ List<_Tok> _tokenize(String text) {
     final loc = _locativeNumbers[w];
     if (loc != null) {
       toks.add(_Tok(orig, w, num: loc, locative: true));
+      continue;
+    }
+    if (w == 'ona' && toks.isNotEmpty && toks.last.w == 'saat') {
+      toks.add(_Tok(orig, w, num: 10, locative: true));
       continue;
     }
     toks.add(_Tok(orig, w.replaceAll("'", ''), num: _units[w] ?? _tens[w]));
@@ -415,6 +424,20 @@ VoiceCommand _parseEvent(List<_Tok> toks, DateTime now) {
     period = p;
     toks[i].used = true;
     if (toks[i].w.startsWith('öğleden') && next == 'sonra') toks[i + 1].used = true;
+  }
+
+  // Saat ekleriyle anlaşılamadıysa: cümlede tek başına kalan 1–24 arası sayı ("toplantı 2").
+  if (hour == null) {
+    for (final t in toks) {
+      if (t.used || t.num == null || t.num! < 1 || t.num! > 24) continue;
+      hour = t.num! % 24;
+      minute = t.minute ?? 0;
+      t.used = true;
+      break;
+    }
+  }
+  for (final t in toks) {
+    if (t.w == 'saat') t.used = true;
   }
 
   // --- Kategori ---
