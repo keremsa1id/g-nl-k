@@ -31,8 +31,37 @@ class HealthData {
   final _health = Health();
   bool _configured = false;
 
-  /// İzin verildi mi (son kontrol).
+  /// En az bir veri türüne izin verildi mi (son kontrol).
   bool connected = false;
+
+  /// Okuma izni verilen türler. Kullanıcı Health Connect'te bazılarını kapatabilir;
+  /// izin verilenler yine okunur.
+  final Set<HealthDataType> granted = {};
+
+  static const _labels = {
+    HealthDataType.STEPS: 'Adımlar',
+    HealthDataType.SLEEP_SESSION: 'Uyku',
+    HealthDataType.WORKOUT: 'Egzersiz',
+  };
+
+  /// İzni eksik olan ana türlerin adları (adım, uyku, egzersiz).
+  List<String> get missing => [
+        for (final e in _labels.entries)
+          if (!granted.contains(e.key)) e.value,
+      ];
+
+  bool can(HealthDataType t) => granted.contains(t);
+
+  /// Son 7 günde hiç adım, uyku ya da egzersiz kaydı yok mu?
+  bool get noData {
+    final today = dateOnly(DateTime.now());
+    for (var i = 0; i < 7; i++) {
+      final d = day(DateTime(today.year, today.month, today.day - i));
+      if (d == null) continue;
+      if ((d.steps ?? 0) > 0 || d.sleep != null || d.workouts.isNotEmpty) return false;
+    }
+    return true;
+  }
 
   /// dayKey -> o günün verisi.
   final Map<String, DayHealth> days = {};
@@ -81,15 +110,21 @@ class HealthData {
     } catch (_) {}
   }
 
+  /// Her türün iznine ayrı bakar: hepsi birden sorulunca tek bir kapalı izin
+  /// (ör. kalori) yüzünden hiçbir veri okunmuyordu.
   Future<bool> checkConnected() async {
+    granted.clear();
     if (!supported) return connected = false;
     try {
       await _configure();
-      connected = await _health.hasPermissions(_types, permissions: _read) ?? false;
-    } catch (_) {
-      connected = false;
-    }
-    return connected;
+      for (final t in _types) {
+        try {
+          final ok = await _health.hasPermissions([t], permissions: const [HealthDataAccess.READ]);
+          if (ok ?? false) granted.add(t);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return connected = granted.isNotEmpty;
   }
 
   /// Health Connect izin ekranını açar.
@@ -118,18 +153,24 @@ class HealthData {
       if (!await checkConnected()) return;
       final today = dateOnly(now);
       if (force || _historyFor != dayKey(today)) {
-        for (var i = 1; i <= 30; i++) {
-          await _loadSteps(DateTime(today.year, today.month, today.day - i));
+        if (can(HealthDataType.STEPS)) {
+          for (var i = 1; i <= 29; i++) {
+            await _loadSteps(DateTime(today.year, today.month, today.day - i));
+          }
         }
-        for (var i = 1; i <= 14; i++) {
-          await _loadSleep(DateTime(today.year, today.month, today.day - i));
+        if (can(HealthDataType.SLEEP_SESSION)) {
+          for (var i = 1; i <= 14; i++) {
+            await _loadSleep(DateTime(today.year, today.month, today.day - i));
+          }
         }
-        await _loadWorkouts(DateTime(today.year, today.month, today.day - 14), now);
+        if (can(HealthDataType.WORKOUT)) {
+          await _loadWorkouts(DateTime(today.year, today.month, today.day - 14), now);
+        }
         _historyFor = dayKey(today);
       }
-      await _loadSteps(today);
-      await _loadSleep(today);
-      await _loadWorkouts(today, now);
+      if (can(HealthDataType.STEPS)) await _loadSteps(today);
+      if (can(HealthDataType.SLEEP_SESSION)) await _loadSleep(today);
+      if (can(HealthDataType.WORKOUT)) await _loadWorkouts(today, now);
       _lastToday = now;
     } finally {
       _busy = false;
