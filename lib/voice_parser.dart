@@ -25,6 +25,19 @@ class VoiceLog extends VoiceCommand {
   final DateTime at;
 }
 
+/// Hızlı ekle: alarmsız etkinliğe başlangıçtan [before] dk önce alarm ("yarın 9'da spor"
+/// -> 08:30). Tek seferlikte o saat geçmişse alarm başlangıçta çalar.
+ScheduleItem withQuickAlarm(ScheduleItem item, int before) {
+  if (item.hasAlarm) return item;
+  var m = before;
+  if (item.repeat == Repeat.once) {
+    final d = item.startDate;
+    final start = DateTime(d.year, d.month, d.day, item.startMinutes ~/ 60, item.startMinutes % 60);
+    if (start.subtract(Duration(minutes: before)).isBefore(DateTime.now())) m = 0;
+  }
+  return ScheduleItem.fromJson({...item.toJson(), 'alarm': m});
+}
+
 class VoiceUnknown extends VoiceCommand {
   const VoiceUnknown(this.message);
 

@@ -80,6 +80,14 @@
             </intent-filter>
         </receiver>
 
+        <!-- Widget'taki 🎙️: uygulamayı açmadan ses tanıma penceresi -->
+        <activity
+            android:name=".VoiceActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.kerem.gunluk.voice"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+
         <!-- Ana ekran widget'ları -->
         <receiver android:name=".TodayWidgetProvider" android:label="Günlük · Bugün"
             android:exported="true">

@@ -39,10 +39,7 @@ class TodayWidgetProvider : HomeWidgetProvider() {
             R.id.root,
             HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java, Uri.parse("gunluk://open"))
         )
-        v.setOnClickPendingIntent(
-            R.id.mic,
-            HomeWidgetLaunchIntent.getActivity(context, MainActivity::class.java, Uri.parse("gunluk://voice"))
-        )
+        v.setOnClickPendingIntent(R.id.mic, VoiceActivity.pendingIntent(context))
 
         val cal = Calendar.getInstance()
         val key = String.format(

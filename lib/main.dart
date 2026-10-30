@@ -130,7 +130,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     // Uygulamadan çıkarken ana ekran widget'ını güncelle.
     if (state == AppLifecycleState.paused) await HomeWidgets.update();
     if (state != AppLifecycleState.resumed) return;
-    await Store.instance.reloadDone();
+    // Widget'tan sesle eklenen etkinlik, ✅ ya da bildirimden "Tamamlandı" olmuş olabilir.
+    await Store.instance.load(fresh: true);
+    if (mounted) setState(() {});
     Notifier.changes.value++;
     await Notifier.refreshExtras();
     await Game.instance.refreshScreenTime();
