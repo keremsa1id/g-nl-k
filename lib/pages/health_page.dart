@@ -72,7 +72,10 @@ class HealthCard extends StatelessWidget {
 
 /// Health Connect verileri: adım, uyku, egzersiz ve takiplerle karşılaştırma.
 class HealthPage extends StatefulWidget {
-  const HealthPage({super.key});
+  const HealthPage({super.key, this.embedded = false});
+
+  /// true: başlık çubuğu olmadan başka bir sayfanın içinde gösterilir.
+  final bool embedded;
 
   @override
   State<HealthPage> createState() => _HealthPageState();
@@ -137,6 +140,7 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
       HealthStatus.notInstalled || HealthStatus.needsUpdate => _install(context),
       HealthStatus.ready => h.connected ? _content(context) : _connectView(context),
     };
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: AppBar(title: const Text('❤️ Sağlık')),
       body: body,

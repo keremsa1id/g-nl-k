@@ -7,6 +7,7 @@ import 'pages/profile_page.dart';
 import 'pages/schedule_page.dart';
 import 'pages/tracker_page.dart';
 import 'pages/tracker_setup.dart';
+import 'pages/wellbeing_page.dart';
 import 'storage.dart';
 import 'theme.dart';
 
@@ -65,7 +66,8 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   final store = Store.instance;
-  int _index = 0; // 0 = Program, n = n'inci takip
+  int _index = 0; // 0 = Program, 1 = Sağlık, n + 1 = n'inci takip
+  bool _wellOpened = false; // Sağlık sekmesi ilk açılınca kurulur
   late int _trackerCount = store.trackers.length;
 
   @override
@@ -94,8 +96,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final n = store.trackers.length;
     setState(() {
       if (n > _trackerCount) {
-        _index = n;
-      } else if (n < _trackerCount || _index > n) {
+        _index = n + 1;
+      } else if (n < _trackerCount || _index > n + 1) {
         _index = 0;
       }
       _trackerCount = n;
@@ -121,6 +123,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         index: _index,
         children: [
           const SchedulePage(),
+          if (_wellOpened) const WellbeingPage() else const SizedBox.shrink(),
           for (final t in trackers) TrackerPage(key: ValueKey(t.id), trackerId: t.id),
         ],
       ),
@@ -150,13 +153,25 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   selected: _index == 0,
                   onTap: () => setState(() => _index = 0),
                 ),
+                _NavItem(
+                  leading: Icon(Icons.favorite_rounded,
+                      color: _index == 1 ? Colors.white : AppTheme.scheme.onSurfaceVariant,
+                      size: 22),
+                  label: 'Sağlık',
+                  showLabel: _index == 1,
+                  selected: _index == 1,
+                  onTap: () => setState(() {
+                    _index = 1;
+                    _wellOpened = true;
+                  }),
+                ),
                 for (final (i, t) in trackers.indexed)
                   _NavItem(
                     leading: Text(t.emoji, style: const TextStyle(fontSize: 20)),
                     label: t.name,
-                    showLabel: _index == i + 1 || trackers.length < 2,
-                    selected: _index == i + 1,
-                    onTap: () => setState(() => _index = i + 1),
+                    showLabel: _index == i + 2 || trackers.length < 2,
+                    selected: _index == i + 2,
+                    onTap: () => setState(() => _index = i + 2),
                   ),
                 const SizedBox(width: 4),
                 // Yeni takip ekle
