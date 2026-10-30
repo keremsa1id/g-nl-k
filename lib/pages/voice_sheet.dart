@@ -10,13 +10,15 @@ import '../voice_parser.dart';
 
 /// Sesli komut penceresi. Etkinlik onaylanırsa (taslak, düzenlensin mi) döner;
 /// takip kaydı ("bir sigara içtim") pencerenin içinde yapılır ve null döner.
-Future<(ScheduleItem, bool)?> showVoiceSheet(BuildContext context) =>
+/// [quickAlarmBefore] verilirse (Hızlı ekle widget'ı) alarmsız etkinliğe başlangıçtan
+/// o kadar dakika önce alarm eklenir.
+Future<(ScheduleItem, bool)?> showVoiceSheet(BuildContext context, {int? quickAlarmBefore}) =>
     showModalBottomSheet<(ScheduleItem, bool)>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
-      builder: (_) => const _VoiceSheet(),
+      builder: (_) => _VoiceSheet(quickAlarmBefore: quickAlarmBefore),
     );
 
 const _examples = [
@@ -29,7 +31,9 @@ const _examples = [
 ];
 
 class _VoiceSheet extends StatefulWidget {
-  const _VoiceSheet();
+  const _VoiceSheet({this.quickAlarmBefore});
+
+  final int? quickAlarmBefore;
 
   @override
   State<_VoiceSheet> createState() => _VoiceSheetState();
@@ -125,10 +129,28 @@ class _VoiceSheetState extends State<_VoiceSheet> {
   }
 
   void _parse(String text) {
+    var cmd = parseVoice(text, Store.instance.trackers);
+    final before = widget.quickAlarmBefore;
+    if (before != null && cmd is VoiceEvent && !cmd.item.hasAlarm) {
+      cmd = VoiceEvent(_withAlarm(cmd.item, before),
+          timeGuessed: cmd.timeGuessed, roundedFrom: cmd.roundedFrom);
+    }
     setState(() {
       _heard = text;
-      _cmd = parseVoice(text, Store.instance.trackers);
+      _cmd = cmd;
     });
+  }
+
+  /// "Yarın 9'da spor" -> 08:30 alarm. Alarm saati geçmişse (tek seferlik) başlangıçta çalar.
+  static ScheduleItem _withAlarm(ScheduleItem item, int before) {
+    var m = before;
+    if (item.repeat == Repeat.once) {
+      final d = item.startDate;
+      final start =
+          DateTime(d.year, d.month, d.day, item.startMinutes ~/ 60, item.startMinutes % 60);
+      if (start.subtract(Duration(minutes: before)).isBefore(DateTime.now())) m = 0;
+    }
+    return ScheduleItem.fromJson({...item.toJson(), 'alarm': m});
   }
 
   Future<void> _saveLog(VoiceLog c) async {
@@ -366,7 +388,12 @@ class _VoiceSheetState extends State<_VoiceSheet> {
                   chip(Icons.schedule_rounded, item.timeLabel),
                   chip(Icons.timelapse_rounded, fmtDuration(item.durationMinutes)),
                   if (cat != null) chip(Icons.category_rounded, cat.name),
-                  if (item.hasAlarm) chip(Icons.alarm_rounded, 'Alarm'),
+                  if (item.hasAlarm)
+                    chip(
+                        Icons.alarm_rounded,
+                        item.alarmMinutesBefore == 0
+                            ? 'Alarm'
+                            : 'Alarm ${fmtMinutes((item.startMinutes - item.alarmMinutesBefore! + 1440) % 1440)}'),
                   chip(Icons.notifications_rounded,
                       fmtOffset(item.reminders.first.minutesBefore)),
                 ],
