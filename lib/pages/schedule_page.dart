@@ -25,6 +25,12 @@ import 'week_view_page.dart';
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
 
+  /// Ana ekrandaki "Hızlı ekle" widget'ı artırır: sesli ekleme açılır.
+  static final quickAddRequest = ValueNotifier<int>(0);
+
+  /// Hızlı ekle ile eklenen etkinliğe başlangıçtan bu kadar dakika önce alarm kurulur.
+  static const quickAlarmBefore = 30;
+
   @override
   State<SchedulePage> createState() => _SchedulePageState();
 }
@@ -44,12 +50,14 @@ class _SchedulePageState extends State<SchedulePage> {
     final idx = _visibleSlots(_dayItems).where((sl) => sl ~/ 2 < now.hour - 1).length;
     _scroll = ScrollController(initialScrollOffset: idx * slotHeight);
     Notifier.changes.addListener(_refresh);
+    SchedulePage.quickAddRequest.addListener(_quickAdd);
     _tick = Timer.periodic(const Duration(minutes: 1), (_) => _refresh());
   }
 
   @override
   void dispose() {
     Notifier.changes.removeListener(_refresh);
+    SchedulePage.quickAddRequest.removeListener(_quickAdd);
     _tick?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -57,6 +65,10 @@ class _SchedulePageState extends State<SchedulePage> {
 
   void _refresh() {
     if (mounted) setState(() {});
+  }
+
+  void _quickAdd() {
+    if (mounted) _voice(quick: true);
   }
 
   Future<void> _toggleDone(ScheduleItem item) async {
@@ -238,8 +250,9 @@ class _SchedulePageState extends State<SchedulePage> {
     ));
   }
 
-  Future<void> _voice() async {
-    final r = await showVoiceSheet(context);
+  Future<void> _voice({bool quick = false}) async {
+    final r = await showVoiceSheet(context,
+        quickAlarmBefore: quick ? SchedulePage.quickAlarmBefore : null);
     if (r == null || !mounted) return;
     final (draft, edit) = r;
     // Taslağa kalıcı bir id ver.
@@ -256,7 +269,8 @@ class _SchedulePageState extends State<SchedulePage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text('🎙️ ${item.title} eklendi · ${item.timeLabel} · ${item.repeatLabel}'),
+        content: Text('🎙️ ${item.title} eklendi · ${item.timeLabel} · ${item.repeatLabel}'
+            '${item.hasAlarm ? ' · ⏰ ${fmtMinutes((item.startMinutes - item.alarmMinutesBefore! + 1440) % 1440)}' : ''}'),
         action: SnackBarAction(label: 'Düzenle', onPressed: () => _openEditor(existing: item)),
       ));
   }

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'game.dart';
+import 'home_widgets.dart';
 import 'notifications.dart';
 import 'pages/profile_page.dart';
 import 'pages/schedule_page.dart';
@@ -16,6 +19,7 @@ Future<void> main() async {
   await Store.instance.load();
   await Game.instance.load();
   await Notifier.init();
+  await HomeWidgets.init();
   runApp(const MyApp());
 }
 
@@ -76,6 +80,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     store.trackersChanged.addListener(_onTrackersChanged);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Ana ekran widget'ından açıldıysa (ör. Hızlı ekle) önce onu yap.
+      await HomeWidgets.listen(_onWidgetUri);
+      unawaited(HomeWidgets.update());
       await Notifier.requestPermissions();
       await Notifier.rescheduleAll(Store.instance.items);
       await Notifier.openFromLaunch();
@@ -89,6 +96,19 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     store.trackersChanged.removeListener(_onTrackersChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  DateTime? _lastWidgetUri;
+
+  /// gunluk://voice -> Program sekmesinde sesli ekleme, gunluk://open -> Program.
+  void _onWidgetUri(Uri uri) {
+    // Soğuk açılışta aynı dokunuş iki yoldan gelebilir.
+    final now = DateTime.now();
+    if (_lastWidgetUri != null && now.difference(_lastWidgetUri!).inSeconds < 2) return;
+    _lastWidgetUri = now;
+    if (!mounted) return;
+    setState(() => _index = 0);
+    if (uri.host == 'voice') SchedulePage.quickAddRequest.value++;
   }
 
   /// Yeni takip eklenince onun sekmesine geç; kaldırılınca Program'a dön.
@@ -107,12 +127,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   // Uygulama kapalıyken bildirimden "Tamamlandı" basılmış olabilir.
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
+    // Uygulamadan çıkarken ana ekran widget'ını güncelle.
+    if (state == AppLifecycleState.paused) await HomeWidgets.update();
     if (state != AppLifecycleState.resumed) return;
     await Store.instance.reloadDone();
     Notifier.changes.value++;
     await Notifier.refreshExtras();
     await Game.instance.refreshScreenTime();
     await Game.instance.refreshHealth();
+    // Widget'tan ✅ basılmış olabilir.
+    await HomeWidgets.update();
   }
 
   @override
