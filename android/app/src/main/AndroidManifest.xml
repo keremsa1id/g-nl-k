@@ -6,6 +6,9 @@
         tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- Sesle ekleme -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Alarm: kilit ekranında tam ekran açılması için -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
@@ -54,6 +57,10 @@
     </application>
 
     <queries>
+        <!-- Sesle ekleme: telefondaki konuşma tanıma servisi -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
+        </intent>
         <!-- Ekran süresinde uygulama adlarını görebilmek için (Android 11+) -->
         <intent>
             <action android:name="android.intent.action.MAIN"/>
