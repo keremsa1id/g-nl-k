@@ -18,6 +18,7 @@ import 'profile_page.dart';
 import 'screen_time_page.dart';
 import 'stats_page.dart';
 import 'tracker_setup.dart';
+import 'voice_sheet.dart';
 import 'week_view_page.dart';
 
 class SchedulePage extends StatefulWidget {
@@ -210,6 +211,10 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
     );
     if (result == null) return;
+    await _saveItem(result);
+  }
+
+  Future<void> _saveItem(ScheduleItem result) async {
     setState(() {
       store.items.removeWhere((i) => i.id == result.id);
       store.items.add(result);
@@ -218,6 +223,39 @@ class _SchedulePageState extends State<SchedulePage> {
     if (result.hasAlarm) await Notifier.requestAlarmPermissions();
     await Notifier.scheduleItem(result);
     unawaited(Notifier.refreshExtras());
+  }
+
+  /// Sesli komut: etkinliği doğrudan ekler ya da düzenleyicide açar.
+  Future<void> _voice() async {
+    final r = await showVoiceSheet(context);
+    if (r == null || !mounted) return;
+    final (draft, edit) = r;
+    // Taslağa kalıcı bir id ver.
+    final item = ScheduleItem.fromJson({...draft.toJson(), 'id': store.newId()});
+    if (edit) {
+      await _openEditor(existing: item);
+      return;
+    }
+    await _saveItem(item);
+    if (!mounted) return;
+    // Eklenen günü göster.
+    final first = _firstOccurrence(item);
+    if (first != null) setState(() => _day = first);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('🎙️ ${item.title} eklendi · ${item.timeLabel} · ${item.repeatLabel}'),
+        action: SnackBarAction(label: 'Düzenle', onPressed: () => _openEditor(existing: item)),
+      ));
+  }
+
+  DateTime? _firstOccurrence(ScheduleItem item) {
+    final today = dateOnly(DateTime.now());
+    for (var i = 0; i < 400; i++) {
+      final d = DateTime(today.year, today.month, today.day + i);
+      if (item.occursOn(d)) return d;
+    }
+    return null;
   }
 
   Future<void> _delete(ScheduleItem item) async {
@@ -380,10 +418,25 @@ class _SchedulePageState extends State<SchedulePage> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openEditor(),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Ekle', style: TextStyle(fontWeight: FontWeight.w700)),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton(
+            heroTag: 'voice',
+            tooltip: 'Sesle ekle',
+            backgroundColor: AppTheme.surface3,
+            foregroundColor: Colors.white,
+            onPressed: _voice,
+            child: const Icon(Icons.mic_rounded),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add',
+            onPressed: () => _openEditor(),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Ekle', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
       ),
     );
   }
