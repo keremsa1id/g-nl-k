@@ -227,6 +227,17 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   /// Sesli komut: etkinliği doğrudan ekler ya da düzenleyicide açar.
+  Future<void> _testAlarm() async {
+    final err = await Notifier.testAlarm();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      duration: const Duration(seconds: 8),
+      content: Text(err ??
+          '⏰ Alarm 15 saniye sonra çalacak. Ekranı kilitleyip bekle; '
+              'çalmazsa telefonun pil/otomatik başlatma ayarlarına bakmak gerekir.'),
+    ));
+  }
+
   Future<void> _voice() async {
     final r = await showVoiceSheet(context);
     if (r == null || !mounted) return;
@@ -362,6 +373,7 @@ class _SchedulePageState extends State<SchedulePage> {
                       'health' => Navigator.push(context,
                           MaterialPageRoute<void>(builder: (_) => const HealthPage())),
                       'tracker' => showTrackerSetup(context),
+                      'alarmtest' => _testAlarm(),
                       _ => Notifier.showTest(),
                     },
                     itemBuilder: (_) => const [
@@ -400,6 +412,11 @@ class _SchedulePageState extends State<SchedulePage> {
                           child: ListTile(
                               leading: Icon(Icons.add_task_rounded),
                               title: Text('Takip ekle (sigara, alkol…)'))),
+                      PopupMenuItem(
+                          value: 'alarmtest',
+                          child: ListTile(
+                              leading: Icon(Icons.alarm_on_rounded),
+                              title: Text('Alarmı test et'))),
                       PopupMenuItem(
                           value: 'test',
                           child: ListTile(

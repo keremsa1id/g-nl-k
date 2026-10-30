@@ -25,17 +25,36 @@ class _AlarmPageState extends State<AlarmPage> with SingleTickerProviderStateMix
       AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
         ..repeat(reverse: true);
   Timer? _clock;
+  Timer? _autoStop;
 
   @override
   void initState() {
     super.initState();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+    _startSound();
   }
 
   static const _channel = MethodChannel('gunluk/alarm');
 
+  /// Bildirimin sesine güvenmeden alarm sesini uygulama çalar. Bildirim kaldırılır ki
+  /// (sesi çalıyorsa) iki ses üst üste binmesin; tekrarlayan alarm yeniden kurulur.
+  Future<void> _startSound() async {
+    try {
+      await Notifier.stopAlarm(widget.item, widget.notificationId);
+      await _channel.invokeMethod<void>('playSound');
+    } catch (_) {}
+    // Kimse kapatmazsa 10 dakika sonra sus.
+    _autoStop = Timer(const Duration(minutes: 10), _stopSound);
+  }
+
+  void _stopSound() {
+    _autoStop?.cancel();
+    _channel.invokeMethod<void>('stopSound').catchError((Object _) {});
+  }
+
   @override
   void dispose() {
+    _stopSound();
     _pulse.dispose();
     _clock?.cancel();
     // Alarm bitti: uygulama artık kilit ekranının üstünde açılmasın.
@@ -44,11 +63,13 @@ class _AlarmPageState extends State<AlarmPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _stop() async {
+    _stopSound();
     await Notifier.stopAlarm(widget.item, widget.notificationId);
     if (mounted) Navigator.pop(context);
   }
 
   Future<void> _snooze() async {
+    _stopSound();
     await Notifier.stopAlarm(widget.item, widget.notificationId);
     await Notifier.snoozeAlarm(widget.item);
     if (!mounted) return;
@@ -58,8 +79,11 @@ class _AlarmPageState extends State<AlarmPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _done() async {
+    _stopSound();
     await Notifier.stopAlarm(widget.item, widget.notificationId);
-    await Store.instance.setDone(widget.item.id, DateTime.now(), true);
+    if (widget.item.id != Notifier.testItemId) {
+      await Store.instance.setDone(widget.item.id, DateTime.now(), true);
+    }
     Notifier.changes.value++;
     await Notifier.refreshExtras();
     if (mounted) Navigator.pop(context);

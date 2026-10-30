@@ -45,6 +45,23 @@ class Notifier {
   static const _alarmBase = 1000000000;
   static int _alarmId(ScheduleItem item, int k) => _alarmBase + item.id * 10 + k;
 
+  /// Test alarmı için sahte etkinlik (gerçek id'ler 1'den başlar).
+  static const testItemId = 0;
+  static ScheduleItem _testItem() {
+    final now = DateTime.now();
+    return ScheduleItem(
+      id: testItemId,
+      title: 'Test alarmı',
+      startMinutes: now.hour * 60 + now.minute,
+      durationMinutes: 30,
+      repeat: Repeat.once,
+      startDate: dateOnly(now),
+      weekdays: const [],
+      colorIndex: 0,
+      alarmMinutesBefore: 0,
+    );
+  }
+
   /// Bildirimden bir etkinlik tamamlanınca artar; sayfalar dinleyip yenilenir.
   static final changes = ValueNotifier<int>(0);
 
@@ -160,10 +177,13 @@ class Notifier {
 
   static Future<void> _handleAlarm(String? action, int itemId, int nid) async {
     final store = Store.instance;
-    final item = store.items.where((i) => i.id == itemId).firstOrNull;
+    final item = itemId == testItemId
+        ? _testItem()
+        : store.items.where((i) => i.id == itemId).firstOrNull;
     if (item == null) return;
     switch (action) {
       case actionDone:
+        if (itemId == testItemId) return;
         await store.setDone(itemId, DateTime.now(), true);
         changes.value++;
         await refreshExtras();
@@ -219,6 +239,49 @@ class Notifier {
       // Eski eklenti sürümlerinde bu metot yok; varsa çağrılır.
       await (a as dynamic).requestFullScreenIntentPermission();
     } catch (_) {}
+  }
+
+  /// [seconds] saniye sonra çalan gerçek bir alarm kurar. Engel varsa nedenini döndürür,
+  /// kurulduysa null.
+  static Future<String?> testAlarm({int seconds = 15}) async {
+    if (kIsWeb) return 'Alarm sadece Android telefonda çalışır.';
+    final a = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (a == null) return 'Alarm sadece Android telefonda çalışır.';
+    if (!(await a.areNotificationsEnabled() ?? true)) {
+      await a.requestNotificationsPermission();
+      if (!(await a.areNotificationsEnabled() ?? true)) {
+        return 'Bildirim izni kapalı. Ayarlar > Uygulamalar > Günlük > Bildirimler\'i aç.';
+      }
+    }
+    await requestAlarmPermissions();
+    if (!(await a.canScheduleExactNotifications() ?? true)) {
+      return 'Tam zamanlı alarm izni kapalı. Ayarlar > Uygulamalar > Günlük > '
+          '"Alarmlar ve hatırlatıcılar" iznini aç.';
+    }
+    // Kanal daha önce oluştuysa kullanıcı (ya da telefon) sesini kapatmış olabilir.
+    try {
+      final channels = await a.getNotificationChannels() ?? const [];
+      for (final c in channels) {
+        if (c.id != 'alarm_v1') continue;
+        if (c.importance == Importance.none) {
+          return '"Alarmlar" bildirim kanalı kapalı. Ayarlar > Uygulamalar > Günlük > '
+              'Bildirimler > Alarmlar\'ı aç.';
+        }
+        if (!c.playSound || c.importance.value < Importance.high.value) {
+          return '"Alarmlar" kanalında ses ya da açılır bildirim kapalı. Ayarlar > Uygulamalar > '
+              'Günlük > Bildirimler > Alarmlar\'da sesi ve "ekranda göster"i aç.';
+        }
+      }
+    } catch (_) {}
+    final item = _testItem();
+    final nid = _alarmId(item, 9);
+    await _plugin.cancel(nid);
+    final when = tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds));
+    await _scheduleAlarmAt(item, nid, when, null, 'Alarm çalışıyor ✅');
+    final pending = await _plugin.pendingNotificationRequests();
+    if (!pending.any((p) => p.id == nid)) return 'Alarm kurulamadı (telefon izin vermedi).';
+    return null;
   }
 
   /// Etkinliğin alarmını (varsa) bir sonraki gerçekleşmelere kurar.
