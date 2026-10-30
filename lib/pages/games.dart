@@ -42,8 +42,10 @@ Future<void> showCravingGames(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
+    isScrollControlled: true, // 7 oyun kartı varsayılan yüksekliğe sığmıyor
     builder: (ctx) => SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
+        child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -60,6 +62,7 @@ Future<void> showCravingGames(BuildContext context) {
               openGame(context, g);
             }),
           ],
+        ),
         ),
       ),
     ),
