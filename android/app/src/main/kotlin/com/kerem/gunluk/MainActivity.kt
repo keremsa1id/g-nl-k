@@ -8,10 +8,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -23,6 +28,48 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyAlarmLockScreen(intent)
+    }
+
+    private var ringtone: Ringtone? = null
+    private var vibrator: Vibrator? = null
+
+    override fun onDestroy() {
+        stopAlarmSound()
+        super.onDestroy()
+    }
+
+    /**
+     * Alarm sesini uygulama içinden çalar (alarm ses seviyesiyle, sessiz modda da).
+     * Bazı telefonlar (ör. Xiaomi) bildirim kanalının sesini kapattığı için gerekli.
+     */
+    @Suppress("DEPRECATION")
+    private fun playAlarmSound() {
+        stopAlarmSound()
+        val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        val r = RingtoneManager.getRingtone(this, uri)
+        if (r != null) {
+            r.audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) r.isLooping = true
+            r.play()
+            ringtone = r
+        }
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        if (v != null && v.hasVibrator()) {
+            v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 400, 800, 400), 0))
+            vibrator = v
+        }
+    }
+
+    private fun stopAlarmSound() {
+        ringtone?.stop()
+        ringtone = null
+        vibrator?.cancel()
+        vibrator = null
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -52,11 +99,20 @@ class MainActivity : FlutterFragmentActivity() {
         // Alarm ekranı kapanınca uygulama artık kilit ekranının üstünde görünmesin.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "gunluk/alarm")
             .setMethodCallHandler { call, result ->
-                if (call.method == "clearLockScreen") {
-                    setLockScreenFlags(false)
-                    result.success(null)
-                } else {
-                    result.notImplemented()
+                when (call.method) {
+                    "clearLockScreen" -> {
+                        setLockScreenFlags(false)
+                        result.success(null)
+                    }
+                    "playSound" -> {
+                        playAlarmSound()
+                        result.success(null)
+                    }
+                    "stopSound" -> {
+                        stopAlarmSound()
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
             }
         // Ekran süresi: Android'in uygulama kullanım istatistikleri (Dijital Denge ile aynı kaynak).
