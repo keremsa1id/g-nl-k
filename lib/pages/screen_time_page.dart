@@ -75,7 +75,10 @@ class ScreenTimeCard extends StatelessWidget {
 
 /// Telefondaki uygulama kullanımı: sosyal medya, oyun, video… (Ayarlar > Dijital Denge verisi).
 class ScreenTimePage extends StatefulWidget {
-  const ScreenTimePage({super.key});
+  const ScreenTimePage({super.key, this.embedded = false});
+
+  /// true: başlık çubuğu olmadan başka bir sayfanın içinde gösterilir.
+  final bool embedded;
 
   @override
   State<ScreenTimePage> createState() => _ScreenTimePageState();
@@ -161,13 +164,15 @@ class _ScreenTimePageState extends State<ScreenTimePage> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    final body = switch (_permission) {
+      null => const Center(child: CircularProgressIndicator()),
+      false => _permissionView(context),
+      true => _content(context),
+    };
+    if (widget.embedded) return body;
     return Scaffold(
       appBar: AppBar(title: const Text('📱 Ekran süresi')),
-      body: switch (_permission) {
-        null => const Center(child: CircularProgressIndicator()),
-        false => _permissionView(context),
-        true => _content(context),
-      },
+      body: body,
     );
   }
 
