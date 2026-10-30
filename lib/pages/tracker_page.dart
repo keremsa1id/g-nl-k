@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../trackers.dart';
 import '../widgets.dart';
 import 'games.dart';
+import 'profile_page.dart';
 import 'tracker_setup.dart';
 import 'tracker_stats_page.dart';
 
@@ -344,6 +345,7 @@ class _TrackerPageState extends State<TrackerPage> {
                     ],
                   ),
                 ),
+                const ProfileButton(),
               ],
             ),
             Expanded(

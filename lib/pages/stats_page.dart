@@ -40,6 +40,17 @@ class StatsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('İstatistikler')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
+        children: sections(context),
+      ),
+    );
+  }
+
+  /// Sayfanın kartları; profil sayfasında da aynen gösterilir.
+  List<Widget> sections(BuildContext context) {
     final store = Store.instance;
     final today = dateOnly(DateTime.now());
     final monday = _add(today, -(today.weekday - 1));
@@ -121,11 +132,7 @@ class StatsPage extends StatelessWidget {
         if (store.items.any((i) => i.category == 0 && store.isDone(i, d))) d,
     };
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('İstatistikler')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
-        children: [
+    return [
           _reportCard(context, rate, lastRate, done, total, bestCat, bestCatRate, streakItem,
               streakN),
           const SizedBox(height: 12),
@@ -145,9 +152,7 @@ class StatsPage extends StatelessWidget {
               last30.where((d) => !sportDaySet.contains(d)).fold<int>(0, (a, d) => a + t.countOn(d)),
             ),
           ],
-        ],
-      ),
-    );
+    ];
   }
 
   Widget _reportCard(BuildContext context, double? rate, double? lastRate, int done, int total,
