@@ -132,7 +132,7 @@ class _VoiceSheetState extends State<_VoiceSheet> {
     var cmd = parseVoice(text, Store.instance.trackers);
     final before = widget.quickAlarmBefore;
     if (before != null && cmd is VoiceEvent && !cmd.item.hasAlarm) {
-      cmd = VoiceEvent(_withAlarm(cmd.item, before),
+      cmd = VoiceEvent(withQuickAlarm(cmd.item, before),
           timeGuessed: cmd.timeGuessed, roundedFrom: cmd.roundedFrom);
     }
     setState(() {
@@ -141,17 +141,7 @@ class _VoiceSheetState extends State<_VoiceSheet> {
     });
   }
 
-  /// "Yarın 9'da spor" -> 08:30 alarm. Alarm saati geçmişse (tek seferlik) başlangıçta çalar.
-  static ScheduleItem _withAlarm(ScheduleItem item, int before) {
-    var m = before;
-    if (item.repeat == Repeat.once) {
-      final d = item.startDate;
-      final start =
-          DateTime(d.year, d.month, d.day, item.startMinutes ~/ 60, item.startMinutes % 60);
-      if (start.subtract(Duration(minutes: before)).isBefore(DateTime.now())) m = 0;
-    }
-    return ScheduleItem.fromJson({...item.toJson(), 'alarm': m});
-  }
+
 
   Future<void> _saveLog(VoiceLog c) async {
     final store = Store.instance;

@@ -22,8 +22,11 @@ class Store {
   Map<String, JournalEntry> journal = {}; // dayKey -> günlük
   int _nextId = 1;
 
-  Future<void> load() async {
+  /// [fresh]: başka bir yerde (widget, bildirim butonu) yazılmış olabilecek veriyi
+  /// diskten yeniden okur.
+  Future<void> load({bool fresh = false}) async {
     _p = await SharedPreferences.getInstance();
+    if (fresh) await _p.reload();
     _nextId = _p.getInt('nextId') ?? 1;
     items = _decode(_p.getString('items'))
         .map((e) => ScheduleItem.fromJson(e as Map<String, dynamic>))

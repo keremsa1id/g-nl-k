@@ -39,6 +39,7 @@ class Notifier {
   static const _maxReminders = 12;
   static const streakGuardId = 2000000001;
   static const weeklyReportId = 2000000002;
+  static const voiceResultId = 2000000003;
   static const reportPayload = 'report';
 
   // Alarm id'leri ayrı aralıkta: 1e9 + item.id * 10 + haftanın günü (0..7), ertelenen: +9.
@@ -209,7 +210,29 @@ class Notifier {
       return;
     }
     final alarm = _parseAlarm(payload);
-    if (alarm != null) await _handleAlarm(d?.notificationResponse?.actionId, alarm.$1, alarm.$2);
+    if (alarm == null) return;
+    // Uygulama sonradan (widget, son uygulamalar) açılınca Android eski alarm intent'ini
+    // tekrar verebiliyor: yalnızca alarm bildirimi hâlâ duruyorsa alarm ekranını aç.
+    if (!await _isActive(alarm.$2)) return;
+    await _handleAlarm(d?.notificationResponse?.actionId, alarm.$1, alarm.$2);
+  }
+
+  static Future<bool> _isActive(int nid) async {
+    try {
+      final a = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (a == null) return true;
+      final list = await a.getActiveNotifications();
+      return list.any((n) => n.id == nid);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Bilgi bildirimi (ör. widget'tan sesle eklenen etkinliğin sonucu).
+  static Future<void> showInfo(String title, String body) async {
+    if (kIsWeb) return;
+    await _plugin.show(voiceResultId, title, body, _infoDetails);
   }
 
   /// Çalan alarmı susturur. Tekrarlayan alarmın sonraki kurulumu da silindiği için yeniden kurar.

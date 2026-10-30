@@ -1,6 +1,7 @@
 package com.kerem.gunluk
 
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.ActivityNotFoundException
@@ -80,7 +81,11 @@ class MainActivity : FlutterFragmentActivity() {
     /** Sadece alarm bildirimiyle açılınca kilit ekranının üstünde göster ve ekranı aç. */
     private fun applyAlarmLockScreen(intent: Intent?) {
         val payload = intent?.getStringExtra("payload")
-        if (payload != null && payload.startsWith("alarm:")) setLockScreenFlags(true)
+        if (payload == null || !payload.startsWith("alarm:")) return
+        // Eski (çoktan kapatılmış) alarm intent'iyle yeniden açılışta kilit ekranını aşma.
+        val nid = payload.substringAfterLast(':').toIntOrNull() ?: return
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.activeNotifications.any { it.id == nid }) setLockScreenFlags(true)
     }
 
     private fun setLockScreenFlags(on: Boolean) {

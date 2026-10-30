@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'models.dart';
+import 'notifications.dart';
 import 'pages/item_editor.dart' show itemColors;
 import 'storage.dart';
+import 'voice_parser.dart';
 
 /// Ana ekran widget'ları (Android): "Bugün" programı ve "Hızlı ekle".
 class HomeWidgets {
@@ -68,15 +70,23 @@ class HomeWidgets {
   }
 }
 
-/// Widget'taki ✅: gunluk://done?id=5&day=2026-10-30 (uygulama kapalıyken de çalışır).
+/// Arka plan işleri (uygulama açılmadan):
+/// - gunluk://done?id=5&day=2026-10-30 : widget'taki ✅
+/// - gunluk://add?text=... : widget'taki 🎙️ ile söylenen komut
 @pragma('vm:entry-point')
 Future<void> homeWidgetCallback(Uri? uri) async {
-  if (uri == null || uri.host != 'done') return;
+  if (uri == null) return;
+  if (uri.host == 'add') {
+    await _voiceAdd(uri.queryParameters['text'] ?? '');
+    return;
+  }
+  if (uri.host != 'done') return;
   final id = int.tryParse(uri.queryParameters['id'] ?? '');
   if (id == null) return;
   final now = DateTime.now();
   final store = Store.instance;
-  await store.load(); // arka planda ayrı bir Dart ortamı: veriler baştan okunur
+  // Arka planda ayrı bir Dart ortamı: veriler diskten baştan okunur.
+  await store.load(fresh: true);
   // Gece yarısını geçmiş eski bir widget görünümünden gelen dokunuş sayılmaz.
   if (uri.queryParameters['day'] case final d? when d != dayKey(now)) {
     await HomeWidgets.update();
@@ -87,3 +97,48 @@ Future<void> homeWidgetCallback(Uri? uri) async {
   await store.setDone(id, now, !store.isDone(item, now));
   await HomeWidgets.update();
 }
+
+/// Söylenen cümleyi uygulamadaki gibi çözer ve kaydeder; sonucu bildirimle söyler.
+Future<void> _voiceAdd(String text) async {
+  final store = Store.instance;
+  await store.load(fresh: true);
+  await Notifier.init(handlers: false);
+  final cmd = parseVoice(text, store.trackers);
+  switch (cmd) {
+    case VoiceEvent(:final item):
+      final draft = withQuickAlarm(item, quickAlarmBefore);
+      final saved = ScheduleItem.fromJson({...draft.toJson(), 'id': store.newId()});
+      store.items.add(saved);
+      await store.saveItems();
+      await Notifier.scheduleItem(saved);
+      final d = saved.startDate;
+      final today = dateOnly(DateTime.now());
+      final when = saved.repeat != Repeat.once
+          ? saved.repeatLabel
+          : sameDay(d, today)
+              ? 'Bugün'
+              : sameDay(d, DateTime(today.year, today.month, today.day + 1))
+                  ? 'Yarın'
+                  : '${d.day} ${trMonths[d.month - 1]}';
+      final alarm = saved.alarmMinutesBefore;
+      await Notifier.showInfo(
+          '✅ ${saved.title} eklendi',
+          '$when ${fmtMinutes(saved.startMinutes)}'
+              '${alarm == null ? '' : ' · ⏰ ${fmtMinutes((saved.startMinutes - alarm + 1440) % 1440)}'}'
+              '\n"$text"');
+    case VoiceLog(:final tracker, :final count, :final at):
+      for (var i = 0; i < count; i++) {
+        tracker.events.add(at.subtract(Duration(seconds: i)));
+      }
+      tracker.events.sort();
+      await store.saveTrackers();
+      await Notifier.showInfo('${tracker.emoji} $count ${tracker.unit} kaydedildi',
+          '${tracker.name} takibine eklendi\n"$text"');
+    case VoiceUnknown(:final message):
+      await Notifier.showInfo('🤔 Anlayamadım', '$message\n"$text"');
+  }
+  await HomeWidgets.update();
+}
+
+/// Widget'tan sesle eklenen etkinliğe başlangıçtan kaç dakika önce alarm kurulur.
+const quickAlarmBefore = 30;
