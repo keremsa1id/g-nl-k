@@ -10,15 +10,54 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        applyAlarmLockScreen(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        applyAlarmLockScreen(intent)
+    }
+
+    /** Sadece alarm bildirimiyle açılınca kilit ekranının üstünde göster ve ekranı aç. */
+    private fun applyAlarmLockScreen(intent: Intent?) {
+        val payload = intent?.getStringExtra("payload")
+        if (payload != null && payload.startsWith("alarm:")) setLockScreenFlags(true)
+    }
+
+    private fun setLockScreenFlags(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(on)
+            setTurnScreenOn(on)
+        } else {
+            val flags = WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            if (on) window.addFlags(flags) else window.clearFlags(flags)
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Alarm ekranı kapanınca uygulama artık kilit ekranının üstünde görünmesin.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "gunluk/alarm")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "clearLockScreen") {
+                    setLockScreenFlags(false)
+                    result.success(null)
+                } else {
+                    result.notImplemented()
+                }
+            }
         // Ekran süresi: Android'in uygulama kullanım istatistikleri (Dijital Denge ile aynı kaynak).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "gunluk/usage")
             .setMethodCallHandler { call, result ->

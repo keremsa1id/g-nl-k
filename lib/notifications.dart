@@ -1,4 +1,4 @@
-import 'dart:typed_data' show Int64List;
+import 'dart:typed_data' show Int32List, Int64List;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -7,7 +7,9 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'categories.dart';
 import 'models.dart';
+import 'pages/alarm_page.dart';
 import 'pages/stats_page.dart';
 import 'storage.dart';
 
@@ -25,6 +27,10 @@ class Notifier {
   static const snoozeFor = Duration(minutes: 10);
   static const actionDone = 'done';
   static const actionSnooze = 'snooze';
+  static const actionAlarmStop = 'alarm_stop';
+  static const actionAlarmSnooze = 'alarm_snooze';
+  static const alarmSnoozeFor = Duration(minutes: 5);
+  static const alarmPrefix = 'alarm:';
 
   // Etkinlik bildirim id'leri: item.id * 100 + hatırlatma * 8 + haftanın günü (0..7),
   // ertelenen hatırlatma: item.id * 100 + 99.
@@ -34,6 +40,10 @@ class Notifier {
   static const streakGuardId = 2000000001;
   static const weeklyReportId = 2000000002;
   static const reportPayload = 'report';
+
+  // Alarm id'leri ayrı aralıkta: 1e9 + item.id * 10 + haftanın günü (0..7), ertelenen: +9.
+  static const _alarmBase = 1000000000;
+  static int _alarmId(ScheduleItem item, int k) => _alarmBase + item.id * 10 + k;
 
   /// Bildirimden bir etkinlik tamamlanınca artar; sayfalar dinleyip yenilenir.
   static final changes = ValueNotifier<int>(0);
@@ -80,10 +90,54 @@ class Notifier {
     ),
   );
 
+  /// Alarm: alarm sesiyle çalar, kapatılana kadar susmaz, kilit ekranında tam ekran açılır.
+  static NotificationDetails _alarmDetails(String body) => NotificationDetails(
+    android: AndroidNotificationDetails(
+      'alarm_v1',
+      'Alarmlar',
+      channelDescription: 'Alarm kurulan etkinlikler (sesli, tam ekran)',
+      importance: Importance.max,
+      priority: Priority.max,
+      color: const Color(0xFFE53935),
+      playSound: true,
+      sound: UriAndroidNotificationSound('content://settings/system/alarm_alert'),
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 800, 400, 800, 400, 800]),
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
+      ongoing: true,
+      autoCancel: false,
+      additionalFlags: Int32List.fromList([4]), // FLAG_INSISTENT: kapatılana kadar çalar
+      styleInformation: BigTextStyleInformation(body),
+      actions: const [
+        AndroidNotificationAction(actionAlarmStop, '⏹ Kapat', cancelNotification: true),
+        AndroidNotificationAction(actionAlarmSnooze, '😴 5 dk ertele', cancelNotification: true),
+        AndroidNotificationAction(actionDone, '✅ Tamamlandı', cancelNotification: true),
+      ],
+    ),
+  );
+
+  /// Alarm bildirimi payload'u: "alarm:<item.id>:<bildirim id>".
+  static (int, int)? _parseAlarm(String? payload) {
+    if (payload == null || !payload.startsWith(alarmPrefix)) return null;
+    final parts = payload.substring(alarmPrefix.length).split(':');
+    if (parts.length != 2) return null;
+    final id = int.tryParse(parts[0]);
+    final nid = int.tryParse(parts[1]);
+    return id == null || nid == null ? null : (id, nid);
+  }
+
   /// Bildirim butonları: Tamamlandı -> bugünü işaretle, Ertele -> 10 dk sonra tekrar hatırlat.
   static Future<void> handleResponse(NotificationResponse r) async {
     if (r.payload == reportPayload) {
       _openReport();
+      return;
+    }
+    final alarm = _parseAlarm(r.payload);
+    if (alarm != null) {
+      await _handleAlarm(r.actionId, alarm.$1, alarm.$2);
       return;
     }
     final id = int.tryParse(r.payload ?? '');
@@ -104,13 +158,123 @@ class Notifier {
   static void _openReport() => navigatorKey.currentState
       ?.push(MaterialPageRoute<void>(builder: (_) => const StatsPage()));
 
-  /// Uygulama haftalık rapor bildirimiyle açıldıysa İstatistikler'e git.
+  static Future<void> _handleAlarm(String? action, int itemId, int nid) async {
+    final store = Store.instance;
+    final item = store.items.where((i) => i.id == itemId).firstOrNull;
+    if (item == null) return;
+    switch (action) {
+      case actionDone:
+        await store.setDone(itemId, DateTime.now(), true);
+        changes.value++;
+        await refreshExtras();
+      case actionAlarmSnooze:
+        await snoozeAlarm(item);
+      case actionAlarmStop:
+        break; // bildirim butonla zaten kapandı
+      default:
+        // Bildirime basıldı ya da kilit ekranında tam ekran açıldı: alarm ekranını göster.
+        navigatorKey.currentState?.push(MaterialPageRoute<void>(
+            fullscreenDialog: true, builder: (_) => AlarmPage(item: item, notificationId: nid)));
+    }
+  }
+
+  /// Uygulama bir bildirimle açıldıysa: rapor -> İstatistikler, alarm -> alarm ekranı.
   static Future<void> openFromLaunch() async {
     if (kIsWeb) return;
     final d = await _plugin.getNotificationAppLaunchDetails();
-    if (d?.didNotificationLaunchApp == true &&
-        d?.notificationResponse?.payload == reportPayload) {
+    if (d?.didNotificationLaunchApp != true) return;
+    final payload = d?.notificationResponse?.payload;
+    if (payload == reportPayload) {
       _openReport();
+      return;
+    }
+    final alarm = _parseAlarm(payload);
+    if (alarm != null) await _handleAlarm(d?.notificationResponse?.actionId, alarm.$1, alarm.$2);
+  }
+
+  /// Çalan alarmı susturur. Tekrarlayan alarmın sonraki kurulumu da silindiği için yeniden kurar.
+  static Future<void> stopAlarm(ScheduleItem item, int nid) async {
+    if (kIsWeb) return;
+    await _plugin.cancel(nid);
+    await scheduleAlarm(item);
+  }
+
+  /// 5 dakika sonra tekrar çal.
+  static Future<void> snoozeAlarm(ScheduleItem item) async {
+    if (kIsWeb) return;
+    final nid = _alarmId(item, 9);
+    final when = tz.TZDateTime.now(tz.local).add(alarmSnoozeFor);
+    await _scheduleAlarmAt(item, nid, when, null, 'Ertelendi · ${fmtMinutes(item.startMinutes)}');
+  }
+
+  /// Alarm kurulan etkinlikler için tam ekran izni (Android 14+ kullanıcıya sorar).
+  static Future<void> requestAlarmPermissions() async {
+    if (kIsWeb) return;
+    final a = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    if (a == null) return;
+    final canExact = await a.canScheduleExactNotifications() ?? true;
+    if (!canExact) await a.requestExactAlarmsPermission();
+    try {
+      // Eski eklenti sürümlerinde bu metot yok; varsa çağrılır.
+      await (a as dynamic).requestFullScreenIntentPermission();
+    } catch (_) {}
+  }
+
+  /// Etkinliğin alarmını (varsa) bir sonraki gerçekleşmelere kurar.
+  static Future<void> scheduleAlarm(ScheduleItem item) async {
+    if (kIsWeb) return;
+    for (var k = 0; k <= 7; k++) {
+      await _plugin.cancel(_alarmId(item, k));
+    }
+    final before = item.alarmMinutesBefore;
+    if (before == null) return;
+    if (item.hasEnd && dateOnly(DateTime.now()).isAfter(dateOnly(item.endDate!))) return;
+    final rem = Reminder(before);
+    final label = before == 0
+        ? 'Saat ${fmtMinutes(item.startMinutes)}'
+        : '${fmtDuration(before)} sonra başlıyor (${fmtMinutes(item.startMinutes)})';
+    switch (item.repeat) {
+      case Repeat.once:
+        final when = _nextReminder(item, rem, (d) => sameDay(d, item.startDate));
+        if (when != null) await _scheduleAlarmAt(item, _alarmId(item, 0), when, null, label);
+      case Repeat.daily:
+        final when = _nextReminder(item, rem, (d) => true);
+        if (when != null) {
+          await _scheduleAlarmAt(item, _alarmId(item, 0), when, DateTimeComponents.time, label);
+        }
+      case Repeat.weekly:
+        for (final wd in item.weekdays) {
+          final when = _nextReminder(item, rem, (d) => d.weekday == wd);
+          if (when != null) {
+            await _scheduleAlarmAt(
+                item, _alarmId(item, wd), when, DateTimeComponents.dayOfWeekAndTime, label);
+          }
+        }
+      case Repeat.monthly:
+        final when = _nextReminder(item, rem, (d) => d.day == item.startDate.day);
+        if (when != null) {
+          await _scheduleAlarmAt(
+              item, _alarmId(item, 0), when, DateTimeComponents.dayOfMonthAndTime, label);
+        }
+    }
+  }
+
+  static Future<void> _scheduleAlarmAt(ScheduleItem item, int nid, tz.TZDateTime when,
+      DateTimeComponents? match, String timing) async {
+    final cat = categoryOf(item.category);
+    final title = '⏰ ${item.title}${cat == null || cat.name == item.title ? '' : ' · ${cat.name}'}';
+    final body = item.note.isEmpty ? timing : '$timing\n📝 ${item.note}';
+    final details = _alarmDetails(body);
+    final payload = '$alarmPrefix${item.id}:$nid';
+    try {
+      // alarmClock: Android'in gerçek alarm saati gibi davranır (pil tasarrufunda da çalar).
+      await _plugin.zonedSchedule(nid, title, body, when, details,
+          androidScheduleMode: AndroidScheduleMode.alarmClock,
+          matchDateTimeComponents: match,
+          payload: payload);
+    } catch (_) {
+      await _schedule(nid, title, body, when, match, payload, details: details);
     }
   }
 
@@ -210,7 +374,9 @@ class Notifier {
     if (kIsWeb) return;
     // Ertelenmiş hatırlatmalar korunur, diğerleri yeniden kurulur.
     for (final p in await _plugin.pendingNotificationRequests()) {
-      final snoozed = p.id < streakGuardId && p.id % _perItem == _snoozeSlot;
+      final snoozed = p.id < _alarmBase
+          ? p.id % _perItem == _snoozeSlot
+          : p.id < streakGuardId && p.id % 10 == 9; // ertelenmiş alarm
       if (!snoozed) await _plugin.cancel(p.id);
     }
     for (final i in items) {
@@ -224,11 +390,15 @@ class Notifier {
     for (var k = 0; k < _perItem; k++) {
       await _plugin.cancel(item.id * _perItem + k);
     }
+    for (var k = 0; k <= 9; k++) {
+      await _plugin.cancel(_alarmId(item, k));
+    }
   }
 
   static Future<void> scheduleItem(ScheduleItem item, {bool cancelFirst = true}) async {
     if (kIsWeb) return;
     if (cancelFirst) await cancelItem(item);
+    await scheduleAlarm(item);
     // Bitiş tarihi geçmişse bildirim kurma (uygulama her açılışta yeniden planlar).
     if (item.hasEnd && dateOnly(DateTime.now()).isAfter(dateOnly(item.endDate!))) return;
 

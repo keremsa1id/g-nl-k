@@ -61,7 +61,14 @@ const categories = <ItemCategory>[
   ItemCategory('Fotoğraf', Icons.photo_camera_rounded, 'Hobi'),
   ItemCategory('Podcast', Icons.podcasts_rounded, 'Hobi', 30),
   ItemCategory('Doğa / gezi', Icons.hiking_rounded, 'Hobi', 180),
+  ItemCategory('Uyanma', Icons.alarm_rounded, 'Sağlık', 30),
 ];
+
+/// Uyanma kategorisinin sırası (alarm kendiliğinden açılır).
+const wakeCategory = 46;
+
+/// Seçilince yeni etkinlikte alarmın kendiliğinden açıldığı kategoriler: Uyanma, İlaç.
+const alarmCategories = {wakeCategory, 9};
 
 ItemCategory? categoryOf(int? index) =>
     index == null || index < 0 || index >= categories.length ? null : categories[index];
