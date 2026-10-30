@@ -3,11 +3,13 @@ import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 
+import '../game.dart';
 import '../models.dart';
 import '../storage.dart';
 import '../theme.dart';
 import '../trackers.dart';
 import '../widgets.dart';
+import 'games.dart';
 import 'tracker_setup.dart';
 import 'tracker_stats_page.dart';
 
@@ -65,11 +67,12 @@ class _TrackerPageState extends State<TrackerPage> {
       ..add(t)
       ..sort());
     await s.saveTrackers();
+    Game.instance.changes.value++;
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: const Text('Kaydedildi, sayaç sıfırlandı'),
+        content: const Text('Kaydedildi, sayaç sıfırlandı · $xpPerEvent XP'),
         action: SnackBarAction(label: 'Geri al', onPressed: () => _removeSmoke(t)),
       ));
   }
@@ -396,6 +399,13 @@ class _TrackerPageState extends State<TrackerPage> {
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                    onPressed: () => showCravingGames(context),
+                    icon: const Text('🎮', style: TextStyle(fontSize: 18)),
+                    label: const Text('Canım çekti · oyunla geçiştir'),
+                  ),
                   const SizedBox(height: 24),
                   // İstatistikler (bento)
                   SectionLabel(

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../categories.dart';
+import '../game.dart';
 import '../models.dart';
 import '../notifications.dart';
 import '../storage.dart';
@@ -64,6 +65,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final value = !store.isDone(item, _day);
     await store.setDone(item.id, _day, value);
     unawaited(Notifier.refreshExtras());
+    Game.instance.changes.value++;
     if (!mounted) return;
     setState(() {});
     if (!value) return;
@@ -87,7 +89,9 @@ class _SchedulePageState extends State<SchedulePage> {
           message: 'Bugünkü ${dayItems.length} etkinliğin hepsi bitti.');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(n > 1 ? '🔥 ${item.title}: ${streakLabel(item, n)}!' : '✅ ${item.title} tamamlandı'),
+        content: Text(n > 1
+            ? '🔥 ${item.title}: ${streakLabel(item, n)}! · +$xpPerDone XP'
+            : '✅ ${item.title} tamamlandı · +$xpPerDone XP'),
         action: SnackBarAction(label: 'Geri al', onPressed: () => _toggleDone(item)),
       ));
     }
