@@ -9,6 +9,7 @@ import '../storage.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'games.dart';
+import 'health_page.dart';
 import 'screen_time_page.dart';
 import 'stats_page.dart';
 
@@ -33,8 +34,10 @@ class _ProfilePageState extends State<ProfilePage> {
     store.trackersChanged.addListener(_refresh);
     // Saate bağlı görevler (öğleden önce, yatmadan önce…) kendiliğinden tamamlansın.
     game.refreshScreenTime();
+    game.refreshHealth();
     _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
       game.refreshScreenTime(); // bitince changes ile yeniden çizilir
+      game.refreshHealth(); // en fazla 2 dakikada bir okur
       _refresh();
     });
   }
@@ -130,6 +133,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 _infoCard(context),
                 const SizedBox(height: 12),
                 _weightCard(context),
+                const SizedBox(height: 24),
+                const SectionLabel('Sağlık'),
+                const SizedBox(height: 8),
+                const HealthCard(),
                 const SizedBox(height: 24),
                 const SectionLabel('Ekran süresi'),
                 const SizedBox(height: 8),
@@ -401,6 +408,7 @@ class _ProfilePageState extends State<ProfilePage> {
           row('🎯', 'Günlük görevleri bitir', '+20–80', green),
           row('🎮', 'Mini oyun oyna (günde en fazla $dailyGameXpCap)', '+5–30', green),
           row('📵', 'Ekran süresi görevi (sosyal medya, oyun sınırı)', '+35–45', green),
+          row('🚶', 'Sağlık görevi (adım, uyku, antrenman)', '+35–40', green),
           row('🚬', 'Takipteki her kayıt (sigara, alkol…)', '$xpPerEvent', AppTheme.redBright),
         ],
       ),

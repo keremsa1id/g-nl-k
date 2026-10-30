@@ -78,6 +78,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       await Notifier.rescheduleAll(Store.instance.items);
       await Notifier.openFromLaunch();
       await Game.instance.refreshScreenTime();
+      await Game.instance.refreshHealth();
     });
   }
 
@@ -109,6 +110,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     Notifier.changes.value++;
     await Notifier.refreshExtras();
     await Game.instance.refreshScreenTime();
+    await Game.instance.refreshHealth();
   }
 
   @override

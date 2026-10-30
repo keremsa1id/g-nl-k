@@ -11,6 +11,7 @@ import '../streaks.dart';
 import '../templates.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'health_page.dart';
 import 'item_detail_page.dart';
 import 'item_editor.dart';
 import 'journal_page.dart';
@@ -358,6 +359,8 @@ class _SchedulePageState extends State<SchedulePage> {
                           initialCategory: wakeCategory),
                       'screen' => Navigator.push(context,
                           MaterialPageRoute<void>(builder: (_) => const ScreenTimePage())),
+                      'health' => Navigator.push(context,
+                          MaterialPageRoute<void>(builder: (_) => const HealthPage())),
                       'tracker' => showTrackerSetup(context),
                       _ => Notifier.showTest(),
                     },
@@ -382,6 +385,11 @@ class _SchedulePageState extends State<SchedulePage> {
                           child: ListTile(
                               leading: Icon(Icons.insights_rounded),
                               title: Text('İstatistikler'))),
+                      PopupMenuItem(
+                          value: 'health',
+                          child: ListTile(
+                              leading: Icon(Icons.favorite_rounded),
+                              title: Text('Sağlık (adım, uyku)'))),
                       PopupMenuItem(
                           value: 'screen',
                           child: ListTile(
