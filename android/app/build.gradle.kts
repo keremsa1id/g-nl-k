@@ -19,7 +19,8 @@ android {
 
     defaultConfig {
         applicationId = "com.kerem.gunluk"
-        minSdk = flutter.minSdkVersion
+        // Health Connect (health paketi) Android 8.0 / API 26 ister.
+        minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

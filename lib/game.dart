@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'health_data.dart';
 import 'models.dart';
 import 'screen_time.dart';
 import 'storage.dart';
@@ -284,7 +285,16 @@ class Game {
       DateTime(day.year, day.month, day.day).add(Duration(minutes: minutes));
 
   /// Yatma saati; gece yarısından sonraysa (ör. 01:00) ertesi güne sayılır.
-  int get _bed => profile.bedMinutes < 4 * 60 ? profile.bedMinutes + 24 * 60 : profile.bedMinutes;
+  /// Health Connect'te uyku verisi varsa profildeki saat yerine gerçek ortalama kullanılır.
+  int get _bed =>
+      HealthData.instance.averageBedtime() ??
+      (profile.bedMinutes < 4 * 60 ? profile.bedMinutes + 24 * 60 : profile.bedMinutes);
+
+  /// Görevlerde kullanılan yatma saati (dakika) ve gerçek veriden mi geldiği.
+  (int, bool) get bedtime {
+    final real = HealthData.instance.averageBedtime();
+    return (real ?? _bed, real != null);
+  }
 
   /// Gün ne zaman "bitti" sayılır: yatma saati.
   DateTime dayClose(DateTime day) => _at(day, _bed);
@@ -476,16 +486,66 @@ class Game {
     ];
   }
 
-  /// Günün görevleri: takip varsa 2 takip görevi + 2 genel görev, kullanım erişimi
-  /// izni varsa + 1 ekran süresi görevi (gün içinde sabit).
+  // ---------- Sağlık (Health Connect) ----------
+
+  Future<void> refreshHealth() async {
+    try {
+      await HealthData.instance.refresh();
+      changes.value++;
+    } catch (_) {}
+  }
+
+  List<Quest> _healthQuests(DateTime day) {
+    final h = HealthData.instance;
+    if (!h.connected) return [];
+    final past = [
+      for (var i = 1; i <= 7; i++)
+        if (h.day(DateTime(day.year, day.month, day.day - i)) case final d?) d,
+    ];
+    final today = h.day(day);
+    QuestState byClose(bool ok, bool? failedNow, DateTime d, DateTime now) {
+      if (ok) return QuestState.done;
+      if (failedNow ?? false) return QuestState.failed;
+      return now.isBefore(dayClose(d)) ? QuestState.active : QuestState.failed;
+    }
+
+    // Adım hedefi: son 7 günün ortalamasının %10 fazlası, 500'e yuvarlı (5.000–15.000).
+    final avg = h.averageSteps(day);
+    var target = avg == null ? 8000 : ((avg * 1.1) / 500).round() * 500;
+    if (target < 5000) target = 5000;
+    if (target > 15000) target = 15000;
+    final steps = today?.steps;
+
+    final hadSleep = past.any((d) => d.sleep != null);
+    final hadWorkout = past.any((d) => d.workouts.isNotEmpty);
+    return [
+      Quest('steps', '🚶', 'Bugün ${fmtSteps(target)} adım at',
+          steps == null ? 'Saatin ya da telefonun saydığı adımlar' : 'Şu an ${fmtSteps(steps)} adım',
+          40, (d, now) => byClose((h.day(d)?.steps ?? 0) >= target, null, d, now)),
+      if (hadSleep)
+        Quest('sleep', '😴', 'En az 7 saat uyu', 'Dün geceki uyku Health Connect\'ten okunur', 35,
+            (d, now) {
+          final s = h.day(d)?.sleep;
+          if (s == null) return now.isBefore(dayClose(d)) ? QuestState.active : QuestState.failed;
+          return s.inMinutes >= 7 * 60 ? QuestState.done : QuestState.failed;
+        }),
+      if (hadWorkout)
+        Quest('workout', '🏋️', 'Bir antrenman yap', 'Saatte ya da spor uygulamasında kaydedilen', 35,
+            (d, now) => byClose(h.day(d)?.workouts.isNotEmpty ?? false, null, d, now)),
+    ];
+  }
+
+  /// Günün görevleri: takip varsa 2 takip görevi + 2 genel görev; kullanım erişimi ve
+  /// Health Connect izni varsa birer ekran süresi ve sağlık görevi (gün içinde sabit).
   List<Quest> questsFor(DateTime day) {
     final seed = day.year * 10000 + day.month * 100 + day.day;
     final rnd = Random(seed);
     final tracker = [for (final t in store.trackers) ..._trackerQuests(t, day)]..shuffle(rnd);
     final general = _generalQuests(day)..shuffle(Random(seed + 1));
     final screenQ = _screenQuests(day)..shuffle(Random(seed + 2));
+    final healthQ = _healthQuests(day)..shuffle(Random(seed + 3));
     final want = tracker.isEmpty ? 4 : 2;
-    return [...tracker.take(2), ...general.take(want), ...screenQ.take(1)];
+    return [...tracker.take(2), ...general.take(want), ...screenQ.take(1), ...healthQ.take(1)];
   }
 
   QuestState stateOf(Quest q, DateTime day) => q.check(day, _nowFor(day));
