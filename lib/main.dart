@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'game.dart';
 import 'notifications.dart';
+import 'pages/profile_page.dart';
 import 'pages/schedule_page.dart';
 import 'pages/tracker_page.dart';
 import 'pages/tracker_setup.dart';
@@ -11,6 +13,7 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Store.instance.load();
+  await Game.instance.load();
   await Notifier.init();
   runApp(const MyApp());
 }
@@ -44,13 +47,14 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   final store = Store.instance;
-  int _index = 0; // 0 = Program, n = n'inci takip
+  int _index = 0; // 0 = Program, 1 = Profil, n+1 = n'inci takip
   late int _trackerCount = store.trackers.length;
 
   @override
   void initState() {
     super.initState();
     store.trackersChanged.addListener(_onTrackersChanged);
+    Game.instance.changes.addListener(_refresh);
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Notifier.requestPermissions();
@@ -62,6 +66,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     store.trackersChanged.removeListener(_onTrackersChanged);
+    Game.instance.changes.removeListener(_refresh);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -71,12 +76,16 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final n = store.trackers.length;
     setState(() {
       if (n > _trackerCount) {
-        _index = n;
-      } else if (n < _trackerCount || _index > n) {
+        _index = n + 1;
+      } else if (n < _trackerCount || _index > n + 1) {
         _index = 0;
       }
       _trackerCount = n;
     });
+  }
+
+  void _refresh() {
+    if (mounted) setState(() {});
   }
 
   // Uygulama kapalıyken bildirimden "Tamamlandı" basılmış olabilir.
@@ -96,6 +105,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         index: _index,
         children: [
           const SchedulePage(),
+          // const değil: sekmeye her geçişte güncel XP / görevlerle yeniden çizilir.
+          // ignore: prefer_const_constructors
+          ProfilePage(),
           for (final t in trackers) TrackerPage(key: ValueKey(t.id), trackerId: t.id),
         ],
       ),
@@ -120,18 +132,31 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                       color: _index == 0 ? Colors.white : AppTheme.scheme.onSurfaceVariant,
                       size: 22),
                   label: 'Program',
-                  // Takip yoksa ya da seçiliyse yazı görünür; yoksa sadece simge.
-                  showLabel: _index == 0 || trackers.length < 2,
+                  // Seçiliyse ya da hiç takip yoksa yazı görünür; yoksa sadece simge.
+                  showLabel: _index == 0 || trackers.isEmpty,
                   selected: _index == 0,
                   onTap: () => setState(() => _index = 0),
+                ),
+                _NavItem(
+                  leading: Badge(
+                    isLabelVisible: Game.instance.unclaimedCount > 0,
+                    label: Text('${Game.instance.unclaimedCount}'),
+                    child: Icon(Icons.emoji_events_rounded,
+                        color: _index == 1 ? Colors.white : AppTheme.scheme.onSurfaceVariant,
+                        size: 22),
+                  ),
+                  label: 'Profil',
+                  showLabel: _index == 1 || trackers.isEmpty,
+                  selected: _index == 1,
+                  onTap: () => setState(() => _index = 1),
                 ),
                 for (final (i, t) in trackers.indexed)
                   _NavItem(
                     leading: Text(t.emoji, style: const TextStyle(fontSize: 20)),
                     label: t.name,
-                    showLabel: _index == i + 1 || trackers.length < 2,
-                    selected: _index == i + 1,
-                    onTap: () => setState(() => _index = i + 1),
+                    showLabel: _index == i + 2 || trackers.isEmpty,
+                    selected: _index == i + 2,
+                    onTap: () => setState(() => _index = i + 2),
                   ),
                 const SizedBox(width: 4),
                 // Yeni takip ekle
