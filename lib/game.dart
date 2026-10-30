@@ -266,7 +266,7 @@ class Game {
   /// Mini oyun ödülü; günlük sınırı aşmayacak kadarını verir, verileni döndürür.
   Future<int> awardGame(String game, int xp) async {
     final left = dailyGameXpCap - gameXpOn(DateTime.now());
-    final given = xp.clamp(0, max(0, left));
+    final int given = left <= 0 ? 0 : min(xp, left);
     // Ödül sıfır olsa da oyun kaydı tutulur ("bir mini oyun oyna" görevi için).
     log.add(XpEntry(DateTime.now(), given, game, 'game'));
     await _saveLog();

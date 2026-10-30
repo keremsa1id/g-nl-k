@@ -76,7 +76,13 @@ class GameCards extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               child: InkWell(
                 borderRadius: BorderRadius.circular(18),
-                onTap: () => onOpen != null ? onOpen!(g) : openGame(context, g),
+                onTap: () {
+                  if (onOpen != null) {
+                    onOpen!(g);
+                  } else {
+                    openGame(context, g);
+                  }
+                },
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
@@ -200,7 +206,7 @@ class _BreathingGameState extends State<BreathingGame> with SingleTickerProvider
   (String, double, int) _phase(double v) {
     final s = v * 14;
     if (s < 4) return ('Nefes al', s / 4, (4 - s).ceil());
-    if (s < 8) return ('Tut', 1, (8 - s).ceil());
+    if (s < 8) return ('Tut', 1.0, (8 - s).ceil());
     return ('Yavaşça ver', 1 - (s - 8) / 6, (14 - s).ceil());
   }
 
