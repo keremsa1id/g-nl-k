@@ -255,6 +255,38 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _hint(BuildContext context, String emoji, String title, String text, String action,
+      VoidCallback onTap) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.surface1,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 22)),
+              const SizedBox(width: 10),
+              Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700))),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(text, style: TextStyle(fontSize: 13, color: muted)),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(onPressed: _loading ? null : onTap, child: Text(action)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _content(BuildContext context) {
     final today = dateOnly(DateTime.now());
     final days = [for (var i = 6; i >= 0; i--) DateTime(today.year, today.month, today.day - i)];
@@ -274,6 +306,24 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
           if (_loading) const LinearProgressIndicator(minHeight: 2),
+          if (h.missing.isNotEmpty) ...[
+            _hint(context, '🔒', '${h.missing.join(', ')} için izin kapalı',
+                'Health Connect\'te "Günlük" uygulamasına bu verileri okuma izni ver.',
+                'İzin ver', _connect),
+            const SizedBox(height: 12),
+          ] else if (!_loading && h.noData) ...[
+            _hint(
+                context,
+                '⏳',
+                'Health Connect\'te henüz veri yok',
+                'Saatinin uygulaması (Mi Fitness, Samsung Health, Google Fit…) verileri '
+                    'Health Connect\'e yazınca burada görünür. O uygulamayı açıp senkronize et, '
+                    'sonra aşağı çekip yenile. Health Connect > Veri ve erişim bölümünde '
+                    'adımların görünüyorsa burada da görünür.',
+                'Yenile',
+                () => _load(force: true)),
+            const SizedBox(height: 12),
+          ],
           _stepsCard(context, todayData?.steps ?? 0, target, avg),
           const SizedBox(height: 24),
           const SectionLabel('Adımlar · son 7 gün'),
