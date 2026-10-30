@@ -195,7 +195,8 @@ class _SchedulePageState extends State<SchedulePage> {
       store.items.where((i) => i.occursOn(_day)).toList()
         ..sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
 
-  Future<void> _openEditor({ScheduleItem? existing, int? startMinutes}) async {
+  Future<void> _openEditor(
+      {ScheduleItem? existing, int? startMinutes, int? initialCategory}) async {
     final result = await showModalBottomSheet<ScheduleItem>(
       context: context,
       isScrollControlled: true,
@@ -205,6 +206,7 @@ class _SchedulePageState extends State<SchedulePage> {
         existing: existing,
         day: _day,
         startMinutes: startMinutes ?? existing?.startMinutes ?? 18 * 60,
+        initialCategory: initialCategory,
       ),
     );
     if (result == null) return;
@@ -213,6 +215,7 @@ class _SchedulePageState extends State<SchedulePage> {
       store.items.add(result);
     });
     await store.saveItems();
+    if (result.hasAlarm) await Notifier.requestAlarmPermissions();
     await Notifier.scheduleItem(result);
     unawaited(Notifier.refreshExtras());
   }
@@ -311,6 +314,10 @@ class _SchedulePageState extends State<SchedulePage> {
                       'week' => _openWeek(),
                       'templates' => _showTemplates(),
                       'stats' => _openStats(),
+                      // Profildeki uyanma saati, yarım saate yuvarlanmış.
+                      'wake' => _openEditor(
+                          startMinutes: Game.instance.profile.wakeMinutes ~/ 30 * 30,
+                          initialCategory: wakeCategory),
                       'screen' => Navigator.push(context,
                           MaterialPageRoute<void>(builder: (_) => const ScreenTimePage())),
                       'tracker' => showTrackerSetup(context),
@@ -327,6 +334,11 @@ class _SchedulePageState extends State<SchedulePage> {
                           child: ListTile(
                               leading: Icon(Icons.auto_awesome_rounded),
                               title: Text('Hazır şablonlar'))),
+                      PopupMenuItem(
+                          value: 'wake',
+                          child: ListTile(
+                              leading: Icon(Icons.alarm_add_rounded),
+                              title: Text('Sabah alarmı kur'))),
                       PopupMenuItem(
                           value: 'stats',
                           child: ListTile(

@@ -24,9 +24,13 @@ class ItemEditor extends StatefulWidget {
     this.existing,
     required this.day,
     required this.startMinutes,
+    this.initialCategory,
   });
 
   final ScheduleItem? existing;
+
+  /// Yeni etkinlikte önceden seçili kategori (ör. "Sabah alarmı kur" -> Uyanma).
+  final int? initialCategory;
   final DateTime day;
   final int startMinutes;
 
@@ -55,6 +59,7 @@ class _ItemEditorState extends State<ItemEditor> {
   String? _group; // kategori filtresi, null = tümü
   bool _durationTouched = false;
   DateTime? _endDate;
+  int? _alarm; // null = kapalı, yoksa başlangıçtan kaç dk önce
   late final TextEditingController _note;
   String? _error;
 
@@ -65,6 +70,7 @@ class _ItemEditorState extends State<ItemEditor> {
     _title = TextEditingController(text: e?.title ?? '');
     _note = TextEditingController(text: e?.note ?? '');
     _endDate = e?.endDate;
+    _alarm = e?.alarmMinutesBefore;
     _group = categoryOf(e?.category)?.group;
     _durationTouched = e != null;
     _start = e?.startMinutes ?? widget.startMinutes;
@@ -77,6 +83,16 @@ class _ItemEditorState extends State<ItemEditor> {
     ];
     _color = e?.colorIndex ?? 0;
     _category = e?.category;
+
+    final initial = widget.initialCategory;
+    if (e == null && initial != null && categoryOf(initial) != null) {
+      final c = categories[initial];
+      _category = initial;
+      _group = c.group;
+      _title.text = c.name;
+      _duration = c.minutes;
+      if (alarmCategories.contains(initial)) _alarm = 0;
+    }
   }
 
   void _pickCategory(int i) {
@@ -88,6 +104,10 @@ class _ItemEditorState extends State<ItemEditor> {
       _category = _category == i ? null : i;
       // Yeni etkinlikte süreye dokunulmadıysa kategorinin önerdiği süreyi kullan.
       if (_category != null && !_durationTouched) _duration = categories[i].minutes;
+      // Yeni Uyanma / İlaç etkinliğinde alarm kendiliğinden açılır.
+      if (widget.existing == null && _category != null && alarmCategories.contains(i)) {
+        _alarm ??= 0;
+      }
       _error = null;
     });
   }
@@ -101,6 +121,7 @@ class _ItemEditorState extends State<ItemEditor> {
         _category = match;
         _group = categories[match].group;
         if (!_durationTouched) _duration = categories[match].minutes;
+        if (widget.existing == null && alarmCategories.contains(match)) _alarm ??= 0;
       }
     });
   }
@@ -159,6 +180,7 @@ class _ItemEditorState extends State<ItemEditor> {
         category: _category,
         endDate: end == null ? null : dateOnly(end),
         note: _note.text.trim(),
+        alarmMinutesBefore: _alarm,
       ),
     );
   }
@@ -321,6 +343,8 @@ class _ItemEditorState extends State<ItemEditor> {
               ),
             const SizedBox(height: 8),
             _remindersSection(context),
+            const SizedBox(height: 12),
+            _alarmSection(context),
             const SizedBox(height: 16),
             TextField(
               controller: _note,
@@ -473,6 +497,57 @@ class _ItemEditorState extends State<ItemEditor> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  static const _alarmOffsets = [0, 5, 10, 15, 30, 60];
+
+  /// "Alarm": bildirimden ayrı, alarm sesiyle kapatılana kadar çalar.
+  Widget _alarmSection(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final accent = itemColors[_color];
+    final on = _alarm != null;
+    final at = on ? (_start - _alarm! + 24 * 60) % (24 * 60) : _start;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.fromLTRB(14, 4, 8, 12),
+      decoration: BoxDecoration(
+        color: on ? accent.withValues(alpha: 0.12) : const Color(0xFF151518),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: on ? accent : const Color(0xFF26262B)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: on,
+            onChanged: (v) => setState(() => _alarm = v ? 0 : null),
+            secondary: Icon(Icons.alarm_rounded, color: on ? accent : muted),
+            title: const Text('Alarm kur', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text(
+              on
+                  ? 'Saat ${fmtMinutes(at)} · alarm sesiyle, kapatana kadar çalar'
+                  : 'Bildirimden ayrı; sesli ve kilit ekranında tam ekran',
+              style: TextStyle(fontSize: 12, color: muted),
+            ),
+          ),
+          if (on)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final o in _alarmOffsets)
+                  ChoiceChip(
+                    label: Text(o == 0 ? 'Tam saatinde' : '${fmtDuration(o)} önce',
+                        style: const TextStyle(fontSize: 12)),
+                    selected: _alarm == o,
+                    onSelected: (_) => setState(() => _alarm = o),
+                  ),
+              ],
+            ),
+        ],
       ),
     );
   }

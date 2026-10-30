@@ -80,6 +80,7 @@ class ScheduleItem {
     this.category,
     this.endDate,
     this.note = '',
+    this.alarmMinutesBefore,
     List<Reminder>? reminders,
     bool notify = false,
   }) : reminders = reminders ?? (notify ? const [Reminder(5)] : const <Reminder>[]);
@@ -96,8 +97,11 @@ class ScheduleItem {
   final int? category; // categories listesindeki sıra, null = kategorisiz
   final DateTime? endDate; // tekrarlananlar için son gün (dahil), null = süresiz
   final String note; // etkinlik açıklaması
+  final int? alarmMinutesBefore; // null = alarm yok; yoksa başlangıçtan kaç dk önce çalar
 
   bool get notify => reminders.isNotEmpty;
+
+  bool get hasAlarm => alarmMinutesBefore != null;
 
   int get endMinutes => startMinutes + durationMinutes;
 
@@ -141,6 +145,7 @@ class ScheduleItem {
         if (category != null) 'cat': category,
         if (endDate != null) 'endDate': endDate!.toIso8601String(),
         if (note.isNotEmpty) 'note': note,
+        if (alarmMinutesBefore != null) 'alarm': alarmMinutesBefore,
       };
 
   factory ScheduleItem.fromJson(Map<String, dynamic> j) => ScheduleItem(
@@ -160,6 +165,7 @@ class ScheduleItem {
         category: j['cat'] as int?,
         endDate: DateTime.tryParse((j['endDate'] as String?) ?? ''),
         note: (j['note'] as String?) ?? '',
+        alarmMinutesBefore: j['alarm'] as int?,
       );
 }
 
