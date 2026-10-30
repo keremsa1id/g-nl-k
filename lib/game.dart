@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models.dart';
+import 'screen_time.dart';
 import 'storage.dart';
 import 'trackers.dart';
 
@@ -70,6 +71,10 @@ class Profile {
   final List<(DateTime, double)> weights = []; // kilo geçmişi, sıralı
 
   int? get age => birthYear == null ? null : DateTime.now().year - birthYear!;
+
+  /// İlk açılış ekranındaki zorunlu alanlar dolu mu?
+  bool get isComplete =>
+      name.isNotEmpty && birthYear != null && gender != null && heightCm != null && weightKg != null;
 
   double? get bmi => heightCm == null || weightKg == null || heightCm! <= 0
       ? null
@@ -371,14 +376,116 @@ class Game {
     ];
   }
 
-  /// Günün görevleri: takip varsa 2 takip görevi + 2 genel görev (gün içinde sabit).
+  // ---------- Ekran süresi ----------
+
+  /// gün (dayKey) -> uygulama grubu -> süre. Kullanım erişimi izni varsa dolar.
+  final Map<String, Map<AppGroup, Duration>> screen = {};
+  String? _screenHistoryFor; // geçmiş 7 gün hangi gün için yüklendi
+  bool _screenBusy = false;
+
+  /// Bugünü her çağrıda, önceki 7 günü günde bir kez telefondan okur.
+  Future<void> refreshScreenTime() async {
+    if (_screenBusy || !ScreenTime.supported) return;
+    _screenBusy = true;
+    try {
+      if (!await ScreenTime.hasPermission()) return;
+      final now = DateTime.now();
+      final today = dateOnly(now);
+      Future<void> load(DateTime from, DateTime to) async {
+        final m = <AppGroup, Duration>{};
+        for (final a in await ScreenTime.query(from, to)) {
+          m[a.group] = (m[a.group] ?? Duration.zero) + a.duration;
+        }
+        screen[dayKey(from)] = m;
+      }
+
+      if (_screenHistoryFor != dayKey(today)) {
+        for (var i = 1; i <= 7; i++) {
+          final d = DateTime(today.year, today.month, today.day - i);
+          await load(d, DateTime(d.year, d.month, d.day + 1));
+        }
+        _screenHistoryFor = dayKey(today);
+      }
+      await load(today, now);
+      changes.value++;
+    } catch (_) {
+      // izin geri alındıysa ya da veri okunamadıysa görevler sessizce gizlenir
+    } finally {
+      _screenBusy = false;
+    }
+  }
+
+  /// [group] null ise toplam ekran süresi.
+  static int _minutes(Map<AppGroup, Duration> m, AppGroup? group) => group == null
+      ? m.values.fold(0, (a, d) => a + d.inMinutes)
+      : (m[group] ?? Duration.zero).inMinutes;
+
+  List<Quest> _screenQuests(DateTime day) {
+    final history = <Map<AppGroup, Duration>>[
+      for (var i = 1; i <= 7; i++)
+        if (screen[dayKey(DateTime(day.year, day.month, day.day - i))] case final m?) m,
+    ];
+    if (history.isEmpty) return [];
+    final todayData = screen[dayKey(day)];
+
+    int average(AppGroup? g) =>
+        history.fold(0, (a, m) => a + _minutes(m, g)) ~/ history.length;
+
+    // Ortalamanın %80'i, 15 dakikaya yuvarlanmış; en az 15 dk.
+    int limitFor(int avg) {
+      final v = (avg * 0.8 / 15).round() * 15;
+      return v < 15 ? 15 : v;
+    }
+
+    String limitText(int m) => fmtUsage(Duration(minutes: m));
+
+    Quest under(String id, String emoji, String title, AppGroup? g, int xp, int limit) {
+      final used = todayData == null ? null : _minutes(todayData, g);
+      return Quest(
+        id,
+        emoji,
+        title,
+        used == null
+            ? 'Son 7 gün ortalaması: ${limitText(average(g))}'
+            : 'Şu an ${limitText(used)} / ${limitText(limit)}',
+        xp,
+        (d, now) {
+          final m = screen[dayKey(d)];
+          if (m == null) return QuestState.active; // veri henüz yok
+          if (_minutes(m, g) >= limit) return QuestState.failed;
+          return now.isBefore(dayClose(d)) ? QuestState.active : QuestState.done;
+        },
+      );
+    }
+
+    final social = average(AppGroup.social);
+    final games = average(AppGroup.game);
+    final total = average(null);
+    return [
+      if (social >= 10)
+        under('screen_social', '📵',
+            'Sosyal medyada en fazla ${limitText(limitFor(social))}', AppGroup.social, 40,
+            limitFor(social)),
+      if (games >= 10)
+        under('screen_game', '🕹️', 'Oyunlara en fazla ${limitText(limitFor(games))}',
+            AppGroup.game, 35, limitFor(games)),
+      if (total >= 30)
+        under('screen_total', '📱',
+            'Toplam ekran süresi ${limitText(limitFor(total))} altında', null, 45,
+            limitFor(total)),
+    ];
+  }
+
+  /// Günün görevleri: takip varsa 2 takip görevi + 2 genel görev, kullanım erişimi
+  /// izni varsa + 1 ekran süresi görevi (gün içinde sabit).
   List<Quest> questsFor(DateTime day) {
     final seed = day.year * 10000 + day.month * 100 + day.day;
     final rnd = Random(seed);
     final tracker = [for (final t in store.trackers) ..._trackerQuests(t, day)]..shuffle(rnd);
     final general = _generalQuests(day)..shuffle(Random(seed + 1));
+    final screenQ = _screenQuests(day)..shuffle(Random(seed + 2));
     final want = tracker.isEmpty ? 4 : 2;
-    return [...tracker.take(2), ...general.take(want)];
+    return [...tracker.take(2), ...general.take(want), ...screenQ.take(1)];
   }
 
   QuestState stateOf(Quest q, DateTime day) => q.check(day, _nowFor(day));

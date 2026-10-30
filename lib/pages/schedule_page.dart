@@ -14,6 +14,8 @@ import '../widgets.dart';
 import 'item_detail_page.dart';
 import 'item_editor.dart';
 import 'journal_page.dart';
+import 'profile_page.dart';
+import 'screen_time_page.dart';
 import 'stats_page.dart';
 import 'tracker_setup.dart';
 import 'week_view_page.dart';
@@ -309,6 +311,8 @@ class _SchedulePageState extends State<SchedulePage> {
                       'week' => _openWeek(),
                       'templates' => _showTemplates(),
                       'stats' => _openStats(),
+                      'screen' => Navigator.push(context,
+                          MaterialPageRoute<void>(builder: (_) => const ScreenTimePage())),
                       'tracker' => showTrackerSetup(context),
                       _ => Notifier.showTest(),
                     },
@@ -329,6 +333,11 @@ class _SchedulePageState extends State<SchedulePage> {
                               leading: Icon(Icons.insights_rounded),
                               title: Text('İstatistikler'))),
                       PopupMenuItem(
+                          value: 'screen',
+                          child: ListTile(
+                              leading: Icon(Icons.phone_android_rounded),
+                              title: Text('Ekran süresi'))),
+                      PopupMenuItem(
                           value: 'tracker',
                           child: ListTile(
                               leading: Icon(Icons.add_task_rounded),
@@ -341,6 +350,7 @@ class _SchedulePageState extends State<SchedulePage> {
                     ],
                   ),
                 ),
+                const ProfileButton(),
               ],
             ),
             _weekStrip(context, now),

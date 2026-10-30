@@ -9,6 +9,8 @@ import '../storage.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'games.dart';
+import 'screen_time_page.dart';
+import 'stats_page.dart';
 
 /// XP, seviye, günlük görevler, mini oyunlar ve kişisel bilgiler.
 class ProfilePage extends StatefulWidget {
@@ -30,7 +32,11 @@ class _ProfilePageState extends State<ProfilePage> {
     Notifier.changes.addListener(_refresh);
     store.trackersChanged.addListener(_refresh);
     // Saate bağlı görevler (öğleden önce, yatmadan önce…) kendiliğinden tamamlansın.
-    _ticker = Timer.periodic(const Duration(minutes: 1), (_) => _refresh());
+    game.refreshScreenTime();
+    _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
+      game.refreshScreenTime(); // bitince changes ile yeniden çizilir
+      _refresh();
+    });
   }
 
   @override
@@ -66,21 +72,23 @@ class _ProfilePageState extends State<ProfilePage> {
           ];
     final p = game.profile;
 
-    return SafeArea(
-      bottom: false,
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 120),
+    return Scaffold(
+      appBar: AppBar(
+        actions: [
+          SquareIconButton(
+            icon: Icons.edit_outlined,
+            tooltip: 'Bilgilerimi düzenle',
+            onPressed: () => showProfileEditor(context),
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 40),
         children: [
           PageHeader(
             eyebrow: 'Profil',
             title: p.name.isEmpty ? 'Merhaba 👋' : p.name,
-            actions: [
-              SquareIconButton(
-                icon: Icons.edit_outlined,
-                tooltip: 'Bilgilerimi düzenle',
-                onPressed: () => showProfileEditor(context),
-              ),
-            ],
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -122,6 +130,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 _infoCard(context),
                 const SizedBox(height: 12),
                 _weightCard(context),
+                const SizedBox(height: 24),
+                const SectionLabel('Ekran süresi'),
+                const SizedBox(height: 8),
+                const ScreenTimeCard(),
+                const SizedBox(height: 24),
+                const SectionLabel('İstatistikler'),
+                const SizedBox(height: 8),
+                ...const StatsPage().sections(context),
               ],
             ),
           ),
@@ -384,6 +400,7 @@ class _ProfilePageState extends State<ProfilePage> {
           row('✅', 'Programdaki bir etkinliği tamamla', '+$xpPerDone', green),
           row('🎯', 'Günlük görevleri bitir', '+20–80', green),
           row('🎮', 'Mini oyun oyna (günde en fazla $dailyGameXpCap)', '+5–30', green),
+          row('📵', 'Ekran süresi görevi (sosyal medya, oyun sınırı)', '+35–45', green),
           row('🚬', 'Takipteki her kayıt (sigara, alkol…)', '$xpPerEvent', AppTheme.redBright),
         ],
       ),
@@ -568,17 +585,43 @@ Future<void> showProfileEditor(BuildContext context) => showModalBottomSheet<voi
       isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
-      builder: (_) => const _ProfileEditor(),
+      builder: (_) => const ProfileForm(),
     );
 
-class _ProfileEditor extends StatefulWidget {
-  const _ProfileEditor();
+/// İlk açılışta zorunlu profil ekranı; geri tuşuyla kapatılamaz.
+class ProfileSetupPage extends StatelessWidget {
+  const ProfileSetupPage({super.key, required this.onDone});
+
+  final VoidCallback onDone;
 
   @override
-  State<_ProfileEditor> createState() => _ProfileEditorState();
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: ProfileForm(onboarding: true, onDone: onDone),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _ProfileEditorState extends State<_ProfileEditor> {
+/// Profil bilgileri formu: düzenleme penceresinde ve ilk açılış ekranında.
+class ProfileForm extends StatefulWidget {
+  const ProfileForm({super.key, this.onboarding = false, this.onDone});
+
+  final bool onboarding;
+  final VoidCallback? onDone;
+
+  @override
+  State<ProfileForm> createState() => _ProfileFormState();
+}
+
+class _ProfileFormState extends State<ProfileForm> {
   final game = Game.instance;
   late final Profile p = game.profile;
   late final _name = TextEditingController(text: p.name);
@@ -590,6 +633,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
   late int _activity = p.activity;
   late int _wake = p.wakeMinutes;
   late int _bed = p.bedMinutes;
+  String? _error;
 
   static String _fmt(double? v) =>
       v == null ? '' : (v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1));
@@ -622,24 +666,50 @@ class _ProfileEditorState extends State<_ProfileEditor> {
   }
 
   Future<void> _save() async {
+    final name = _name.text.trim();
     final age = int.tryParse(_age.text.trim());
+    final height = _parse(_height.text);
     final weight = _parse(_weight.text);
+    final goal = _parse(_goal.text);
+    final String? error;
+    if (name.isEmpty) {
+      error = 'Adını yaz';
+    } else if (age == null || age < 5 || age > 120) {
+      error = 'Geçerli bir yaş gir';
+    } else if (_gender == null) {
+      error = 'Cinsiyet seç';
+    } else if (height == null || height < 50 || height > 250) {
+      error = 'Boyunu cm olarak gir (ör. 175)';
+    } else if (weight == null || weight < 20 || weight > 400) {
+      error = 'Kilonu kg olarak gir (ör. 70)';
+    } else {
+      error = null;
+    }
+    if (error != null || age == null || weight == null) {
+      setState(() => _error = error);
+      return;
+    }
     p
-      ..name = _name.text.trim()
-      ..birthYear = age == null || age <= 0 || age > 120 ? null : DateTime.now().year - age
+      ..name = name
+      ..birthYear = DateTime.now().year - age
       ..gender = _gender
-      ..heightCm = _parse(_height.text)
-      ..goalWeightKg = _parse(_goal.text)
+      ..heightCm = height
+      ..goalWeightKg = goal != null && goal >= 20 && goal <= 400 ? goal : null
       ..activity = _activity
       ..wakeMinutes = _wake
       ..bedMinutes = _bed;
-    if (weight != null && weight != p.weightKg) {
+    if (weight != p.weightKg) {
       await game.logWeight(weight); // profili de kaydeder
     } else {
       p.weightKg = weight;
       await game.saveProfile();
     }
-    if (mounted) Navigator.pop(context);
+    if (!mounted) return;
+    if (widget.onboarding) {
+      widget.onDone?.call();
+    } else {
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -650,6 +720,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
           child: TextField(
             controller: c,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => setState(() => _error = null),
             decoration: InputDecoration(labelText: label, suffixText: suffix),
           ),
         );
@@ -676,31 +747,42 @@ class _ProfileEditorState extends State<_ProfileEditor> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Kişisel bilgiler',
-                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+            if (widget.onboarding) ...[
+              const Text('👋', style: TextStyle(fontSize: 44)),
+              const SizedBox(height: 8),
+              Text('Hoş geldin!',
+                  style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 4),
+              Text('Başlamadan önce seni biraz tanıyalım. Bu bilgiler görevlerin, '
+                  'kalori ihtiyacının ve vücut kitle indeksinin hesaplanmasında kullanılır.',
+                  style: TextStyle(color: muted)),
+            ] else
+              Text('Kişisel bilgiler',
+                  style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
-            Text('Hepsi isteğe bağlı ve sadece telefonunda saklanır.',
+            Text('* işaretli alanlar zorunlu. Bilgiler sadece telefonunda saklanır.',
                 style: TextStyle(color: muted, fontSize: 12)),
             const SizedBox(height: 16),
             TextField(
               controller: _name,
               textCapitalization: TextCapitalization.words,
-              decoration: const InputDecoration(labelText: 'Adın'),
+              onChanged: (_) => setState(() => _error = null),
+              decoration: const InputDecoration(labelText: 'Adın *'),
             ),
             const SizedBox(height: 12),
             Row(children: [
-              numField(_age, 'Yaş', ''),
+              numField(_age, 'Yaş *', ''),
               const SizedBox(width: 10),
-              numField(_height, 'Boy', 'cm'),
+              numField(_height, 'Boy *', 'cm'),
             ]),
             const SizedBox(height: 12),
             Row(children: [
-              numField(_weight, 'Kilo', 'kg'),
+              numField(_weight, 'Kilo *', 'kg'),
               const SizedBox(width: 10),
               numField(_goal, 'Hedef kilo', 'kg'),
             ]),
             const SizedBox(height: 16),
-            Text('Cinsiyet', style: theme.textTheme.labelLarge),
+            Text('Cinsiyet *', style: theme.textTheme.labelLarge),
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
@@ -709,14 +791,16 @@ class _ProfileEditorState extends State<_ProfileEditor> {
                   ChoiceChip(
                     label: Text(g),
                     selected: _gender == i,
-                    onSelected: (v) => setState(() => _gender = v ? i : null),
+                    onSelected: (v) => setState(() {
+                      _gender = v ? i : null;
+                      _error = null;
+                    }),
                   ),
               ],
             ),
             const SizedBox(height: 16),
             Text('Hareket düzeyi', style: theme.textTheme.labelLarge),
-            const SizedBox(height: 4),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 6,
               runSpacing: 6,
@@ -742,16 +826,93 @@ class _ProfileEditorState extends State<_ProfileEditor> {
               const SizedBox(width: 10),
               time('Yatma', _bed, false),
             ]),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            ],
             const SizedBox(height: 20),
             FilledButton.icon(
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
               onPressed: _save,
-              icon: const Icon(Icons.check),
-              label: const Text('Kaydet'),
+              icon: Icon(widget.onboarding ? Icons.arrow_forward_rounded : Icons.check),
+              label: Text(widget.onboarding ? 'Başla' : 'Kaydet'),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Sayfa başlıklarının sağ üstündeki profil düğmesi: seviye halkası + alınmamış ödül sayısı.
+class ProfileButton extends StatelessWidget {
+  const ProfileButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final game = Game.instance;
+    return ValueListenableBuilder<int>(
+      valueListenable: game.changes,
+      builder: (context, _, __) {
+        final (level, into, need) = levelFor(game.totalXp);
+        final unclaimed = game.unclaimedCount;
+        final name = game.profile.name;
+        return Tooltip(
+          message: 'Profil',
+          child: GestureDetector(
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute<void>(builder: (_) => const ProfilePage())),
+            child: Badge(
+              isLabelVisible: unclaimed > 0,
+              label: Text('$unclaimed'),
+              child: SizedBox(
+                width: 46,
+                height: 46,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    SizedBox.expand(
+                      child: CircularProgressIndicator(
+                        value: into / need,
+                        strokeWidth: 3,
+                        backgroundColor: AppTheme.border,
+                        color: AppTheme.redBright,
+                      ),
+                    ),
+                    Container(
+                      width: 36,
+                      height: 36,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppTheme.surface3,
+                      ),
+                      child: Text(
+                        name.isEmpty ? '🙂' : name.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppTheme.red,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text('$level',
+                            style: const TextStyle(
+                                fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
