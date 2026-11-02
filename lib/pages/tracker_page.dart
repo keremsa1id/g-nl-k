@@ -10,6 +10,7 @@ import '../theme.dart';
 import '../trackers.dart';
 import '../widgets.dart';
 import 'games.dart';
+import 'lungs.dart';
 import 'profile_page.dart';
 import 'tracker_setup.dart';
 import 'tracker_stats_page.dart';
@@ -361,6 +362,10 @@ class _TrackerPageState extends State<TrackerPage> {
                             ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                   ],
                   const SizedBox(height: 16),
+                  if (isSmokingTracker(t)) ...[
+                    LungsCard(tracker: t),
+                    const SizedBox(height: 16),
+                  ],
                   _milestoneStrip(context, elapsed ?? Duration.zero),
                   const SizedBox(height: 20),
                   // Butonlar
