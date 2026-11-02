@@ -12,7 +12,8 @@ bool isSmokingTracker(Tracker t) {
 }
 
 /// Her sigara kirlilik ekler, kirlilik [_halfLife] saatte yarıya iner.
-const _perSmoke = 0.18;
+/// 1 sigara ≈ %6, art arda 5 ≈ %26; günde bir paket birkaç günde ~%75'e oturur.
+const _perSmoke = 0.06;
 const _halfLife = 18.0; // saat
 
 double _load(List<DateTime> events, DateTime now) {
@@ -149,6 +150,8 @@ class _LungsHeroState extends State<LungsHero> with SingleTickerProviderStateMix
   }
 }
 
+/// El çizimi tarzı akciğer: titrek mürekkep kontur, soluk borusu halkaları,
+/// bronş ağacı, lob çizgileri ve tarama gölge. Kirlendikçe katran dolar.
 class _LungsPainter extends CustomPainter {
   _LungsPainter(this.dirt, this.breath) : super(repaint: breath);
 
@@ -161,24 +164,63 @@ class _LungsPainter extends CustomPainter {
     return [for (var i = 0; i < 90; i++) (r.nextDouble(), r.nextDouble(), r.nextDouble())];
   }();
 
+  // Görüntünün solundaki akciğer (anatomik sağ: 3 lob).
   Path _leftLung(double w, double h) => Path()
-    ..moveTo(w * 0.44, h * 0.24)
-    ..cubicTo(w * 0.30, h * 0.16, w * 0.15, h * 0.30, w * 0.09, h * 0.56)
-    ..cubicTo(w * 0.04, h * 0.80, w * 0.10, h * 0.97, w * 0.25, h * 0.95)
-    ..cubicTo(w * 0.35, h * 0.94, w * 0.42, h * 0.89, w * 0.46, h * 0.81)
-    ..cubicTo(w * 0.47, h * 0.62, w * 0.47, h * 0.42, w * 0.44, h * 0.24)
+    ..moveTo(w * 0.43, h * 0.22)
+    ..cubicTo(w * 0.33, h * 0.14, w * 0.20, h * 0.24, w * 0.13, h * 0.42)
+    ..cubicTo(w * 0.06, h * 0.60, w * 0.04, h * 0.82, w * 0.10, h * 0.93)
+    ..cubicTo(w * 0.17, h * 0.99, w * 0.30, h * 0.93, w * 0.40, h * 0.90)
+    ..cubicTo(w * 0.46, h * 0.88, w * 0.47, h * 0.82, w * 0.46, h * 0.74)
+    ..cubicTo(w * 0.45, h * 0.60, w * 0.47, h * 0.40, w * 0.43, h * 0.22)
     ..close();
+
+  /// Yolu hafifçe titreterek elle çizilmiş gibi gösterir (her karede aynı sonuç).
+  static Path _sketch(Path src, double amp, double seed) {
+    final out = Path();
+    for (final m in src.computeMetrics()) {
+      var first = true;
+      for (var d = 0.0; d <= m.length; d += 3) {
+        final t = m.getTangentForOffset(d)!;
+        final n = Offset(-t.vector.dy, t.vector.dx);
+        final j = amp * (0.6 * sin(d * 0.11 + seed) + 0.4 * sin(d * 0.037 + seed * 2.3));
+        final p = t.position + n * j;
+        if (first) {
+          out.moveTo(p.dx, p.dy);
+          first = false;
+        } else {
+          out.lineTo(p.dx, p.dy);
+        }
+      }
+      if (m.isClosed) out.close();
+    }
+    return out;
+  }
+
+  /// Bronş ağacı: (başlangıç, bitiş, derinlik) parçaları.
+  static void _branch(
+      List<(Offset, Offset, int)> out, Offset from, double angle, double len, int depth) {
+    final to = from + Offset(cos(angle), sin(angle)) * len;
+    out.add((from, to, depth));
+    if (depth == 0) return;
+    _branch(out, to, angle - 0.42, len * 0.7, depth - 1);
+    _branch(out, to, angle + 0.36, len * 0.66, depth - 1);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
     final b = Curves.easeInOut.transform(breath.value);
 
+    final ink = Color.lerp(const Color(0xFF6B2737), const Color(0xFF2B1B17), dirt)!;
+    final tissueTop = Color.lerp(const Color(0xFFFFBFCB), const Color(0xFFC9A49B), dirt * 0.6)!;
+    final tissueBottom = Color.lerp(const Color(0xFFF4889E), const Color(0xFF9C6B60), dirt * 0.6)!;
+    final airFill = Color.lerp(const Color(0xFFF7B3C2), const Color(0xFF8D6E63), dirt * 0.7)!;
+    final treeColor = Color.lerp(const Color(0xFFD45C78), const Color(0xFF4E342E), dirt)!;
+
     // Nefes: ortadan biraz genişleyip daralır.
     canvas.save();
-    final scale = 0.95 + 0.05 * b;
     canvas.translate(w / 2, h * 0.55);
-    canvas.scale(scale, 0.97 + 0.03 * b);
+    canvas.scale(0.95 + 0.05 * b, 0.97 + 0.03 * b);
     canvas.translate(-w / 2, -h * 0.55);
 
     final left = _leftLung(w, h);
@@ -190,35 +232,117 @@ class _LungsPainter extends CustomPainter {
       ..addPath(right, Offset.zero);
     final bounds = lungs.getBounds();
 
-    // Soluk borusu ve bronşlar
-    final airway = Paint()
-      ..color = Color.lerp(const Color(0xFFF48FB1), const Color(0xFF6D4C41), dirt * 0.7)!
+    // Soluk borusu ve ana bronşlar: konturlu tüp (akciğerlerin arkasında kalır).
+    final tube = Path()
+      ..moveTo(w * 0.5, 0)
+      ..lineTo(w * 0.5, h * 0.24)
+      ..moveTo(w * 0.5, h * 0.22)
+      ..quadraticBezierTo(w * 0.46, h * 0.30, w * 0.36, h * 0.36)
+      ..moveTo(w * 0.5, h * 0.22)
+      ..quadraticBezierTo(w * 0.54, h * 0.30, w * 0.64, h * 0.36);
+    final tubePaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = w * 0.06;
-    canvas.drawLine(Offset(w * 0.5, h * 0.02), Offset(w * 0.5, h * 0.24), airway);
-    airway.strokeWidth = w * 0.04;
+      ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(
+        tube,
+        tubePaint
+          ..color = ink
+          ..strokeWidth = w * 0.09 + 5);
+    canvas.drawPath(
+        tube,
+        tubePaint
+          ..color = airFill
+          ..strokeWidth = w * 0.09);
+    // Kıkırdak halkaları
+    final rings = Paint()
+      ..color = ink.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.6;
+    for (var y = h * 0.03; y < h * 0.21; y += h * 0.032) {
+      canvas.drawPath(
         Path()
-          ..moveTo(w * 0.5, h * 0.22)
-          ..quadraticBezierTo(w * 0.47, h * 0.30, w * 0.38, h * 0.36)
-          ..moveTo(w * 0.5, h * 0.22)
-          ..quadraticBezierTo(w * 0.53, h * 0.30, w * 0.62, h * 0.36),
-        airway);
+          ..moveTo(w * 0.465, y)
+          ..quadraticBezierTo(w * 0.5, y + h * 0.014, w * 0.535, y),
+        rings,
+      );
+    }
 
-    // Sağlıklı doku: pembe
+    // Doku: yumuşak pembe dolgu
     canvas.drawPath(
       lungs,
       Paint()
-        ..shader = const LinearGradient(
+        ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFFA4B4), Color(0xFFE35D74)],
+          colors: [tissueTop, tissueBottom],
         ).createShader(bounds),
     );
 
     canvas.save();
     canvas.clipPath(lungs);
+
+    // Tarama gölge: her akciğerin dış-alt kenarında hilal şeklinde.
+    final shade = Path.combine(
+      PathOperation.difference,
+      lungs,
+      Path()
+        ..addPath(left, Offset(w * 0.05, -h * 0.06))
+        ..addPath(right, Offset(-w * 0.05, -h * 0.06)),
+    );
+    canvas.save();
+    canvas.clipPath(shade);
+    final hatch = Paint()
+      ..color = ink.withValues(alpha: 0.35)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    for (var x = -h; x < w; x += 5) {
+      canvas.drawLine(Offset(x, h), Offset(x + h, 0), hatch);
+    }
+    canvas.restore();
+
+    // Bronş ağacı (sol akciğerde üretilir, sağa aynalanır)
+    final segs = <(Offset, Offset, int)>[];
+    _branch(segs, Offset(w * 0.36, h * 0.36), pi * 0.64, w * 0.15, 3);
+    final tree = Paint()
+      ..color = treeColor
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    for (final (a, z, depth) in segs) {
+      tree.strokeWidth = 1.0 + depth * 1.1;
+      canvas.drawLine(a, z, tree);
+      canvas.drawLine(Offset(w - a.dx, a.dy), Offset(w - z.dx, z.dy), tree);
+    }
+
+    // Lob çizgileri (solda iki, sağda bir yarık)
+    final fissure = Paint()
+      ..color = ink.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.8;
+    canvas.drawPath(
+      _sketch(
+        Path()
+          ..moveTo(w * 0.16, h * 0.36)
+          ..quadraticBezierTo(w * 0.30, h * 0.62, w * 0.40, h * 0.90)
+          ..moveTo(w * 0.07, h * 0.60)
+          ..quadraticBezierTo(w * 0.17, h * 0.55, w * 0.26, h * 0.57),
+        0.8,
+        3,
+      ),
+      fissure,
+    );
+    canvas.drawPath(
+      _sketch(
+        Path()
+          ..moveTo(w * 0.84, h * 0.38)
+          ..quadraticBezierTo(w * 0.72, h * 0.60, w * 0.62, h * 0.90),
+        0.8,
+        5,
+      ),
+      fissure,
+    );
 
     // Kir: alttan dalgalı bir katran tabakası olarak dolar…
     if (dirt > 0.003) {
@@ -239,15 +363,23 @@ class _LungsPainter extends CustomPainter {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              const Color(0xFF5D4037).withValues(alpha: 0.75 + 0.2 * dirt),
+              const Color(0xFF5D4037).withValues(alpha: 0.7 + 0.2 * dirt),
               const Color(0xFF261A14).withValues(alpha: 0.9),
             ],
           ).createShader(Rect.fromLTRB(bounds.left, top, bounds.right, bounds.bottom)),
       );
+      // Katranın üst sınırı da mürekkeple çizilsin
+      canvas.drawPath(
+        wave,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4
+          ..color = const Color(0xFF1B120E).withValues(alpha: 0.6),
+      );
 
       // …ve tüm akciğere is lekeleri yayılır; temizlendikçe şeffaflaşır.
       canvas.drawPath(
-          lungs, Paint()..color = const Color(0xFF3E2723).withValues(alpha: 0.35 * dirt));
+          lungs, Paint()..color = const Color(0xFF3E2723).withValues(alpha: 0.3 * dirt));
       final spot = Paint();
       final n = (_specks.length * dirt).round();
       for (var i = 0; i < n; i++) {
@@ -261,24 +393,40 @@ class _LungsPainter extends CustomPainter {
       }
     }
 
-    // Parlaklık (temizken daha belirgin)
-    canvas.drawOval(
-      Rect.fromLTWH(w * 0.14, h * 0.36, w * 0.10, h * 0.22),
-      Paint()..color = Colors.white.withValues(alpha: 0.22 * (1 - dirt)),
-    );
-    canvas.drawOval(
-      Rect.fromLTWH(w * 0.76, h * 0.36, w * 0.10, h * 0.22),
-      Paint()..color = Colors.white.withValues(alpha: 0.22 * (1 - dirt)),
-    );
+    // Çizgi film parlaması: kısa beyaz kavis + nokta (temizken belirgin)
+    final shine = Paint()
+      ..color = Colors.white.withValues(alpha: 0.6 * (1 - dirt))
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3.5;
+    final dot = Paint()..color = Colors.white.withValues(alpha: 0.6 * (1 - dirt));
+    for (final flip in [false, true]) {
+      double x(double v) => flip ? w - v : v;
+      canvas.drawPath(
+        Path()
+          ..moveTo(x(w * 0.24), h * 0.30)
+          ..quadraticBezierTo(x(w * 0.15), h * 0.40, x(w * 0.13), h * 0.54),
+        shine,
+      );
+      canvas.drawCircle(Offset(x(w * 0.125), h * 0.61), 2, dot);
+    }
     canvas.restore();
 
-    // Kenar çizgisi
+    // Mürekkep kontur: kalın ana çizgi + üstüne ince ikinci "kalem" geçişi.
     canvas.drawPath(
-      lungs,
+      _sketch(lungs, 0.9, 1),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..color = Color.lerp(const Color(0xFFFFCDD6), const Color(0xFF4E342E), dirt)!,
+        ..strokeWidth = 3.2
+        ..strokeJoin = StrokeJoin.round
+        ..color = ink,
+    );
+    canvas.drawPath(
+      _sketch(lungs, 1.4, 7).shift(const Offset(0.8, -0.6)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = ink.withValues(alpha: 0.45),
     );
     canvas.restore();
   }
