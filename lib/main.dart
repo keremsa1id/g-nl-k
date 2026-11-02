@@ -32,7 +32,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Günlük',
+      title: 'Ritmo',
       navigatorKey: Notifier.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,

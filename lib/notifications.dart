@@ -274,12 +274,12 @@ class Notifier {
     if (!(await a.areNotificationsEnabled() ?? true)) {
       await a.requestNotificationsPermission();
       if (!(await a.areNotificationsEnabled() ?? true)) {
-        return 'Bildirim izni kapalı. Ayarlar > Uygulamalar > Günlük > Bildirimler\'i aç.';
+        return 'Bildirim izni kapalı. Ayarlar > Uygulamalar > Ritmo > Bildirimler\'i aç.';
       }
     }
     await requestAlarmPermissions();
     if (!(await a.canScheduleExactNotifications() ?? true)) {
-      return 'Tam zamanlı alarm izni kapalı. Ayarlar > Uygulamalar > Günlük > '
+      return 'Tam zamanlı alarm izni kapalı. Ayarlar > Uygulamalar > Ritmo > '
           '"Alarmlar ve hatırlatıcılar" iznini aç.';
     }
     // Kanal daha önce oluştuysa kullanıcı (ya da telefon) sesini kapatmış olabilir.
@@ -288,12 +288,12 @@ class Notifier {
       for (final c in channels) {
         if (c.id != 'alarm_v1') continue;
         if (c.importance == Importance.none) {
-          return '"Alarmlar" bildirim kanalı kapalı. Ayarlar > Uygulamalar > Günlük > '
+          return '"Alarmlar" bildirim kanalı kapalı. Ayarlar > Uygulamalar > Ritmo > '
               'Bildirimler > Alarmlar\'ı aç.';
         }
         if (!c.playSound || c.importance.value < Importance.high.value) {
           return '"Alarmlar" kanalında ses ya da açılır bildirim kapalı. Ayarlar > Uygulamalar > '
-              'Günlük > Bildirimler > Alarmlar\'da sesi ve "ekranda göster"i aç.';
+              'Ritmo > Bildirimler > Alarmlar\'da sesi ve "ekranda göster"i aç.';
         }
       }
     } catch (_) {}
@@ -426,7 +426,7 @@ class Notifier {
     try {
       tz.setLocalLocation(tz.getLocation('Europe/Istanbul'));
     } catch (_) {}
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const android = AndroidInitializationSettings('@drawable/ic_stat_ritmo');
     await _plugin.initialize(
       const InitializationSettings(android: android),
       onDidReceiveNotificationResponse: handlers ? handleResponse : null,

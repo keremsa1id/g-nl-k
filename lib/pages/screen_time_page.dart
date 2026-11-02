@@ -230,7 +230,7 @@ class _ScreenTimePageState extends State<ScreenTimePage> with WidgetsBindingObse
           child: Column(
             children: [
               step('1', 'Aşağıdaki butona bas, "Kullanım erişimi" ayarı açılacak.'),
-              step('2', 'Listede "Günlük" uygulamasını bul.'),
+              step('2', 'Listede "Ritmo" uygulamasını bul.'),
               step('3', '"Kullanım erişimine izin ver" anahtarını aç ve geri dön.'),
             ],
           ),
