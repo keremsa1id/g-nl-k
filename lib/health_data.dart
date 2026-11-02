@@ -10,6 +10,13 @@ class DayHealth {
   DateTime? sleepStart;
   DateTime? sleepEnd;
   final List<Workout> workouts = [];
+
+  // Gün seçilince okunan ayrıntılar (loadDetail).
+  List<int>? hourly; // 24 saatlik adım
+  double? distanceM; // metre
+  double? activeKcal;
+  double? totalKcal;
+  DateTime? detailAt;
 }
 
 class Workout {
@@ -228,6 +235,82 @@ class HealthData {
         _slot(p.dateFrom).workouts.add(Workout(name, p.dateFrom, p.dateTo.difference(p.dateFrom)));
       }
     } catch (_) {}
+  }
+
+  // ---------- Gün ayrıntısı ----------
+
+  /// Seçilen günün saatlik adımlarını, mesafesini ve kalorisini okur (bugün en fazla
+  /// 2 dakikada bir, geçmiş günler bir kez).
+  Future<void> loadDetail(DateTime d, {bool force = false}) async {
+    if (!supported || !connected) return;
+    final slot = _slot(d);
+    final now = DateTime.now();
+    final isToday = sameDay(d, now);
+    if (!force &&
+        slot.detailAt != null &&
+        (!isToday || now.difference(slot.detailAt!).inMinutes < 2)) {
+      return;
+    }
+    final from = dateOnly(d);
+    var to = DateTime(d.year, d.month, d.day + 1);
+    if (to.isAfter(now)) to = now;
+
+    // Saat ve telefon aynı veriyi ayrı ayrı yazabiliyor: çift saymamak için en çok
+    // veri yazan kaynağın kayıtları kullanılır.
+    Future<List<HealthDataPoint>> read(HealthDataType t) async {
+      if (!can(t)) return const [];
+      try {
+        final pts = await _health.getHealthDataFromTypes(types: [t], startTime: from, endTime: to);
+        final bySource = <String, List<HealthDataPoint>>{};
+        for (final p in pts) {
+          bySource.putIfAbsent(p.sourceName, () => []).add(p);
+        }
+        List<HealthDataPoint> best = const [];
+        var bestSum = -1.0;
+        for (final list in bySource.values) {
+          final s = _sum(list);
+          if (s > bestSum) {
+            bestSum = s;
+            best = list;
+          }
+        }
+        return best;
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final steps = await read(HealthDataType.STEPS);
+    if (steps.isNotEmpty) {
+      final hours = List<double>.filled(24, 0);
+      for (final p in steps) {
+        final v = p.value;
+        if (v is NumericHealthValue && sameDay(p.dateFrom, d)) {
+          hours[p.dateFrom.hour] += v.numericValue.toDouble();
+        }
+      }
+      // Günlük toplamla (Health Connect'in birleştirdiği değer) uyumlu olsun.
+      final raw = hours.fold(0.0, (a, b) => a + b);
+      final total = slot.steps;
+      final k = total != null && total > 0 && raw > 0 ? total / raw : 1.0;
+      slot.hourly = [for (final h in hours) (h * k).round()];
+    }
+    final dist = await read(HealthDataType.DISTANCE_DELTA);
+    if (dist.isNotEmpty) slot.distanceM = _sum(dist);
+    final active = await read(HealthDataType.ACTIVE_ENERGY_BURNED);
+    if (active.isNotEmpty) slot.activeKcal = _sum(active);
+    final total = await read(HealthDataType.TOTAL_CALORIES_BURNED);
+    if (total.isNotEmpty) slot.totalKcal = _sum(total);
+    slot.detailAt = now;
+  }
+
+  static double _sum(List<HealthDataPoint> pts) {
+    var s = 0.0;
+    for (final p in pts) {
+      final v = p.value;
+      if (v is NumericHealthValue) s += v.numericValue.toDouble();
+    }
+    return s;
   }
 
   // ---------- Özetler ----------
