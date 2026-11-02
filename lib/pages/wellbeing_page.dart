@@ -9,14 +9,35 @@ import 'screen_time_page.dart';
 class WellbeingPage extends StatefulWidget {
   const WellbeingPage({super.key});
 
+  /// Seçili alt sekme (0 = Sağlık, 1 = Ekran süresi); giriş ekranı da değiştirir.
+  static final tab = ValueNotifier<int>(0);
+
   @override
   State<WellbeingPage> createState() => _WellbeingPageState();
 }
 
 class _WellbeingPageState extends State<WellbeingPage> {
-  int _tab = 0; // 0 = Sağlık, 1 = Ekran süresi
   // Ekran süresi ilk açılınca yüklenir (her açılışta 8 sorgu yapıyor).
   final _opened = <int>{0};
+
+  int get _tab => WellbeingPage.tab.value;
+
+  @override
+  void initState() {
+    super.initState();
+    _opened.add(_tab);
+    WellbeingPage.tab.addListener(_onTab);
+  }
+
+  @override
+  void dispose() {
+    WellbeingPage.tab.removeListener(_onTab);
+    super.dispose();
+  }
+
+  void _onTab() {
+    if (mounted) setState(() => _opened.add(_tab));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,10 +66,7 @@ class _WellbeingPageState extends State<WellbeingPage> {
                         label: Text('Ekran süresi')),
                   ],
                   selected: {_tab},
-                  onSelectionChanged: (s) => setState(() {
-                    _tab = s.first;
-                    _opened.add(_tab);
-                  }),
+                  onSelectionChanged: (s) => WellbeingPage.tab.value = s.first,
                 ),
               ),
             ),
