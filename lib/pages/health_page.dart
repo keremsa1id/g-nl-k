@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:health/health.dart' show HealthDataType;
 
 import '../categories.dart' show trLower;
 import '../game.dart';
@@ -85,6 +86,25 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
   final h = HealthData.instance;
   HealthStatus? _status;
   bool _loading = false;
+  DateTime? _sel; // grafikte seçilen gün (null = bugün)
+  int _range = 7; // adım grafiği: 7 ya da 30 gün
+
+  DateTime get _selected => _sel ?? dateOnly(DateTime.now());
+
+  /// Grafikte bir güne dokunuldu: o günün ayrıntıları gösterilir.
+  void _select(DateTime d) {
+    setState(() => _sel = sameDay(d, DateTime.now()) ? null : d);
+    h.loadDetail(d).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  static String _dayTitle(DateTime d) {
+    final today = dateOnly(DateTime.now());
+    if (sameDay(d, today)) return 'Bugün';
+    if (sameDay(d, DateTime(today.year, today.month, today.day - 1))) return 'Dün';
+    return '${d.day} ${trMonths[d.month - 1]} ${trWeekdays[d.weekday - 1]}';
+  }
 
   @override
   void initState() {
@@ -114,7 +134,10 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
     });
     if (s != HealthStatus.ready) return;
     await h.checkConnected();
-    if (h.connected) await h.refresh(force: force);
+    if (h.connected) {
+      await h.refresh(force: force);
+      await h.loadDetail(_selected, force: force);
+    }
     Game.instance.changes.value++;
     if (mounted) setState(() => _loading = false);
   }
@@ -294,7 +317,11 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
   Widget _content(BuildContext context) {
     final today = dateOnly(DateTime.now());
     final days = [for (var i = 6; i >= 0; i--) DateTime(today.year, today.month, today.day - i)];
-    final todayData = h.day(today);
+    final sel = _selected;
+    final selData = h.day(sel);
+    final chartDays = [
+      for (var i = _range - 1; i >= 0; i--) DateTime(today.year, today.month, today.day - i)
+    ];
     final avg = h.averageSteps(today);
     var target = avg == null ? 8000 : ((avg * 1.1) / 500).round() * 500;
     if (target < 5000) target = 5000;
@@ -328,20 +355,56 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
                 () => _load(force: true)),
             const SizedBox(height: 12),
           ],
-          _stepsCard(context, todayData?.steps ?? 0, target, avg),
+          _stepsCard(context, sel, selData?.steps ?? 0, target, avg),
           const SizedBox(height: 24),
-          const SectionLabel('Adımlar · son 7 gün'),
+          SectionLabel(
+            'Adımlar · son $_range gün',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final r in const [7, 30])
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: ChoiceChip(
+                      label: Text('$r gün'),
+                      selected: _range == r,
+                      visualDensity: VisualDensity.compact,
+                      onSelected: (_) => setState(() => _range = r),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           const SizedBox(height: 8),
-          _bars(context, days, [for (final d in days) (h.day(d)?.steps ?? 0).toDouble()],
-              _green, (v) => v >= 1000 ? '${(v / 1000).toStringAsFixed(1)}b' : '${v.round()}'),
+          _bars(context, chartDays,
+              [for (final d in chartDays) (h.day(d)?.steps ?? 0).toDouble()], _green,
+              (v) => v >= 1000 ? '${(v / 1000).toStringAsFixed(1)}b' : '${v.round()}',
+              selected: sel, onTap: _select),
+          const SizedBox(height: 6),
+          Text('Ayrıntı için bir güne dokun',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 12),
+          _dayDetail(context, sel),
           const SizedBox(height: 24),
           const SectionLabel('Uyku · son 7 gece'),
           const SizedBox(height: 8),
-          _sleepSummary(context, todayData, bed, realBed),
+          _sleepSummary(context, sel, selData, bed, realBed),
           const SizedBox(height: 8),
           _bars(context, days,
               [for (final d in days) (h.day(d)?.sleep?.inMinutes ?? 0) / 60], _blue,
-              (v) => v == 0 ? '' : '${v.toStringAsFixed(1)}s'),
+              (v) => v == 0 ? '' : '${v.toStringAsFixed(1)}s',
+              selected: sel, onTap: _select),
+          if (h.can(HealthDataType.SLEEP_SESSION) && days.every((d) => h.day(d)?.sleep == null))
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                  'Uyku verisi gelmiyor. Saatinin uygulamasında (ör. Mi Fitness) '
+                  'Health Connect\'e uyku paylaşımının açık olduğuna bak.',
+                  style: TextStyle(
+                      fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ),
           const SizedBox(height: 24),
           const SectionLabel('Egzersizler · son 7 gün'),
           const SizedBox(height: 8),
@@ -362,7 +425,7 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _stepsCard(BuildContext context, int steps, int target, int? avg) {
+  Widget _stepsCard(BuildContext context, DateTime day, int steps, int target, int? avg) {
     final p = target == 0 ? 0.0 : steps / target;
     return Container(
       padding: const EdgeInsets.all(20),
@@ -399,9 +462,9 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('BUGÜN',
-                    style: TextStyle(
-                        color: Colors.white70, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
+                Text(_dayTitle(day),
+                    style: const TextStyle(
+                        color: Colors.white70, fontWeight: FontWeight.w800, letterSpacing: 0.6)),
                 Text(fmtSteps(steps),
                     style: const TextStyle(
                         fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: -1)),
@@ -424,12 +487,17 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _sleepSummary(BuildContext context, DayHealth? today, int bed, bool realBed) {
+  Widget _sleepSummary(
+      BuildContext context, DateTime day, DayHealth? today, int bed, bool realBed) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final avg = h.averageSleep();
     final s = today?.sleep;
     final from = today?.sleepStart;
     final to = today?.sleepEnd;
+    // Bir günün uykusu, o sabah biten gecedir.
+    final night = sameDay(day, DateTime.now())
+        ? 'Dün gece'
+        : '${_dayTitle(DateTime(day.year, day.month, day.day - 1))} gecesi';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -443,7 +511,7 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Dün gece', style: TextStyle(fontSize: 12, color: muted)),
+                Text(night, style: TextStyle(fontSize: 12, color: muted)),
                 Text(s == null ? '—' : fmtDuration(s.inMinutes),
                     style: const TextStyle(
                         fontSize: 22, fontWeight: FontWeight.w900, color: _blue)),
@@ -475,9 +543,11 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
   }
 
   Widget _bars(BuildContext context, List<DateTime> days, List<double> values, Color color,
-      String Function(double) label) {
+      String Function(double) label,
+      {required DateTime selected, required void Function(DateTime) onTap}) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final peak = values.fold(0.0, (a, b) => a > b ? a : b);
+    final dense = days.length > 10;
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
       decoration: BoxDecoration(
@@ -492,38 +562,208 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
           children: [
             for (var i = 0; i < days.length; i++)
               Expanded(
-                child: Column(
-                  children: [
-                    Text(values[i] == 0 ? '' : label(values[i]),
-                        style: TextStyle(fontSize: 10, color: muted)),
-                    const SizedBox(height: 4),
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: FractionallySizedBox(
-                          heightFactor: peak == 0 || values[i] / peak < 0.03 ? 0.03 : values[i] / peak,
-                          child: Container(
-                            width: 18,
-                            decoration: BoxDecoration(
-                              color: i == days.length - 1 ? color : color.withValues(alpha: 0.5),
-                              borderRadius: BorderRadius.circular(6),
+                child: Builder(builder: (context) {
+                  final isSel = sameDay(days[i], selected);
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onTap(days[i]),
+                    child: Column(
+                      children: [
+                        Text(
+                          values[i] == 0 || (dense && !isSel) ? '' : label(values[i]),
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.visible,
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: isSel ? Colors.white : muted,
+                              fontWeight: isSel ? FontWeight.w800 : FontWeight.w500),
+                        ),
+                        const SizedBox(height: 4),
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: peak == 0 || values[i] / peak < 0.03
+                                  ? 0.03
+                                  : values[i] / peak,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: dense ? 6 : 18,
+                                decoration: BoxDecoration(
+                                  color: isSel ? color : color.withValues(alpha: 0.45),
+                                  borderRadius: BorderRadius.circular(dense ? 3 : 6),
+                                  border: isSel && !dense
+                                      ? Border.all(color: Colors.white, width: 1.5)
+                                      : null,
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                        const SizedBox(height: 6),
+                        Text(
+                          dense
+                              ? (isSel || days[i].day % 5 == 0 ? '${days[i].day}' : '')
+                              : trWeekdaysShort[days[i].weekday - 1],
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.visible,
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: isSel ? Colors.white : muted,
+                              fontWeight: isSel ? FontWeight.w800 : FontWeight.w500),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(trWeekdaysShort[days[i].weekday - 1],
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: i == days.length - 1 ? Colors.white : muted,
-                            fontWeight: i == days.length - 1 ? FontWeight.w800 : FontWeight.w500)),
-                  ],
-                ),
+                  );
+                }),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Seçilen günün ayrıntıları: adım, mesafe, kalori, uyku, egzersiz ve saatlik adım.
+  Widget _dayDetail(BuildContext context, DateTime d) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final x = h.day(d);
+    final workouts = x?.workouts ?? const <Workout>[];
+    final wMin = workouts.fold(0, (a, w) => a + w.duration.inMinutes);
+    final steps = x?.steps;
+    final dist = x?.distanceM;
+    final active = x?.activeKcal;
+    final total = x?.totalKcal;
+    final sleep = x?.sleep;
+    final hourly = x?.hourly;
+
+    Widget cell(String emoji, String label, String value) => Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.surface2,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('$emoji $label',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: muted)),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+              ),
+            ],
+          ),
+        );
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.surface1,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('📊 ${_dayTitle(d)}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 1.35,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              cell('🚶', 'Adım', steps == null ? '—' : fmtSteps(steps)),
+              cell('📏', 'Mesafe', dist == null ? '—' : '${(dist / 1000).toStringAsFixed(2)} km'),
+              cell('🔥', 'Aktif kalori', active == null ? '—' : '${active.round()} kcal'),
+              cell('⚡', 'Toplam kalori', total == null ? '—' : '${total.round()} kcal'),
+              cell('😴', 'Uyku', sleep == null ? '—' : fmtDuration(sleep.inMinutes)),
+              cell('🏋️', 'Egzersiz',
+                  workouts.isEmpty ? '—' : '${workouts.length} · ${fmtDuration(wMin)}'),
+            ],
+          ),
+          if (hourly != null) ...[
+            const SizedBox(height: 16),
+            Text('Saatlik adım', style: TextStyle(fontSize: 12, color: muted)),
+            const SizedBox(height: 8),
+            _hourly(context, hourly),
+          ],
+          if (workouts.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final w in workouts) _workoutRow(context, w),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _hourly(BuildContext context, List<int> hours) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final peak = hours.fold(0, (a, b) => a > b ? a : b);
+    var best = 0;
+    for (var i = 1; i < hours.length; i++) {
+      if (hours[i] > hours[best]) best = i;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 80,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < 24; i++)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 1),
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: FractionallySizedBox(
+                        heightFactor: peak == 0 || hours[i] / peak < 0.03 ? 0.03 : hours[i] / peak,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: i == best && peak > 0
+                                ? _green
+                                : _green.withValues(alpha: 0.45),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            for (final h in const [0, 6, 12, 18])
+              Expanded(
+                child: Text('${two(h)}:00', style: TextStyle(fontSize: 10, color: muted)),
+              ),
+          ],
+        ),
+        if (peak > 0) ...[
+          const SizedBox(height: 6),
+          Text(
+            'En hareketli saat: ${two(best)}:00–${two((best + 1) % 24)}:00 · '
+            '${fmtSteps(hours[best])} adım',
+            style: TextStyle(fontSize: 12, color: muted),
+          ),
+        ],
+      ],
     );
   }
 
