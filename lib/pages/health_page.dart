@@ -127,7 +127,7 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
     setState(() => _loading = false);
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('İzin verilmedi. Health Connect ayarlarından "Günlük"e izin verebilirsin.')));
+          content: Text('İzin verilmedi. Health Connect ayarlarından "Ritmo"ya izin verebilirsin.')));
     }
   }
 
@@ -312,7 +312,7 @@ class _HealthPageState extends State<HealthPage> with WidgetsBindingObserver {
           if (_loading) const LinearProgressIndicator(minHeight: 2),
           if (h.missing.isNotEmpty) ...[
             _hint(context, '🔒', '${h.missing.join(', ')} için izin kapalı',
-                'Health Connect\'te "Günlük" uygulamasına bu verileri okuma izni ver.',
+                'Health Connect\'te "Ritmo" uygulamasına bu verileri okuma izni ver.',
                 'İzin ver', _connect),
             const SizedBox(height: 12),
           ] else if (!_loading && h.noData) ...[

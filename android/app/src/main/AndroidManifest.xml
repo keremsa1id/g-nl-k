@@ -23,7 +23,7 @@
         android:maxSdkVersion="32"/>
 
     <application
-        android:label="Günlük"
+        android:label="Ritmo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -89,7 +89,7 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
 
         <!-- Ana ekran widget'ları -->
-        <receiver android:name=".TodayWidgetProvider" android:label="Günlük · Bugün"
+        <receiver android:name=".TodayWidgetProvider" android:label="Ritmo · Bugün"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
@@ -97,7 +97,7 @@
             <meta-data android:name="android.appwidget.provider"
                 android:resource="@xml/widget_today_info"/>
         </receiver>
-        <receiver android:name=".QuickAddWidgetProvider" android:label="Günlük · Hızlı ekle"
+        <receiver android:name=".QuickAddWidgetProvider" android:label="Ritmo · Hızlı ekle"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>

@@ -45,18 +45,9 @@ class WebLandingPage extends StatelessWidget {
       children: [
         Row(
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppTheme.red,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Text('📅', style: TextStyle(fontSize: 28)),
-            ),
+            Image.asset('assets/brand/ritmo.png', width: 56, height: 56),
             const SizedBox(width: 14),
-            Text('Günlük',
+            Text('Ritmo',
                 style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900)),
           ],
         ),
