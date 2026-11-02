@@ -102,7 +102,7 @@ class _LauncherPageState extends State<LauncherPage> {
     final lines = [
       start == null ? 'Sayacı başlat' : '⏱ Temiz: ${_ago(now.difference(start))}',
       if (isSmokingTracker(t))
-        '🫁 Ciğer %${(lungDirt(t.events, now) * 100).round()} kirli'
+        '🫁 Ciğer ~%${(lungDirt(t.events, now) * 100).round()} kirli (temsili)'
       else
         'Bugün $today ${t.unit}',
     ];

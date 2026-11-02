@@ -129,7 +129,7 @@ class _LungsHeroState extends State<LungsHero> with SingleTickerProviderStateMix
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: color.withValues(alpha: 0.5)),
               ),
-              child: Text('🫁 $label · %${(d * 100).round()} kirli',
+              child: Text('🫁 $label · ~%${(d * 100).round()} kirli',
                   style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13)),
             ),
             const SizedBox(height: 14),
@@ -141,8 +141,47 @@ class _LungsHeroState extends State<LungsHero> with SingleTickerProviderStateMix
                   : 'İçmezsen ~${_fmt(left)} sonra temiz',
               style: TextStyle(fontSize: 12, color: muted),
             ),
-            Text('Temsili gösterim; gerçek iyileşme daha uzun sürer.',
-                style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.7))),
+            const SizedBox(height: 6),
+            // Tıbbi veri olmadığı açıkça görünsün; dokununca açıklama açılır.
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Bu gerçek bir ölçüm değil'),
+                  content: const Text(
+                    'Akciğer çizimi ve kirlilik yüzdesi yalnızca motivasyon amaçlı bir '
+                    'canlandırmadır. Vücudundan hiçbir veri ölçülmez; değer, girdiğin sigara '
+                    'kayıtlarından basit bir formülle hesaplanır.\n\n'
+                    'Gerçek akciğer iyileşmesi aylar ile yıllar sürer ve kişiden kişiye '
+                    'değişir. Sağlığınla ilgili bilgi için bir doktora danış.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Anladım'),
+                    ),
+                  ],
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.info_outline, size: 14, color: muted),
+                    const SizedBox(width: 4),
+                    Text('Temsili canlandırma · tıbbi ölçüm değildir',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: muted,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                            decorationStyle: TextDecorationStyle.dotted)),
+                  ],
+                ),
+              ),
+            ),
           ],
         );
       },
