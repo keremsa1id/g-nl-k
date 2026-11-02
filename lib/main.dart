@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'game.dart';
 import 'home_widgets.dart';
 import 'notifications.dart';
+import 'pages/launcher_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/schedule_page.dart';
 import 'pages/tracker_page.dart';
 import 'pages/tracker_setup.dart';
+import 'pages/web_landing_page.dart';
 import 'pages/wellbeing_page.dart';
 import 'storage.dart';
 import 'theme.dart';
@@ -53,9 +56,11 @@ class _Root extends StatefulWidget {
 
 class _RootState extends State<_Root> {
   bool _ready = Game.instance.profile.isComplete;
+  bool _webIntro = kIsWeb; // web sitesi: önce tanıtım ve indirme sayfası
 
   @override
   Widget build(BuildContext context) {
+    if (_webIntro) return WebLandingPage(onContinue: () => setState(() => _webIntro = false));
     if (_ready) return const HomeShell();
     return ProfileSetupPage(onDone: () => setState(() => _ready = true));
   }
@@ -72,6 +77,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   final store = Store.instance;
   int _index = 0; // 0 = Program, 1 = Sağlık, n + 1 = n'inci takip
   bool _wellOpened = false; // Sağlık sekmesi ilk açılınca kurulur
+  bool _launcher = true; // açılışta büyük kutucuklu giriş ekranı
+  DateTime? _pausedAt;
+
+  /// Giriş ekranında bir kutucuk seçildi.
+  void _openFromLauncher(int index, int? tab) {
+    setState(() {
+      if (index == 1) {
+        _wellOpened = true;
+        if (tab != null) WellbeingPage.tab.value = tab;
+      }
+      _index = index;
+      _launcher = false;
+    });
+  }
   late int _trackerCount = store.trackers.length;
 
   @override
@@ -107,7 +126,10 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (_lastWidgetUri != null && now.difference(_lastWidgetUri!).inSeconds < 2) return;
     _lastWidgetUri = now;
     if (!mounted) return;
-    setState(() => _index = 0);
+    setState(() {
+      _index = 0;
+      _launcher = false;
+    });
     if (uri.host == 'voice') SchedulePage.quickAddRequest.value++;
   }
 
@@ -117,6 +139,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     setState(() {
       if (n > _trackerCount) {
         _index = n + 1;
+        _launcher = false;
       } else if (n < _trackerCount || _index > n + 1) {
         _index = 0;
       }
@@ -128,8 +151,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   Future<void> didChangeAppLifecycleState(AppLifecycleState state) async {
     // Uygulamadan çıkarken ana ekran widget'ını güncelle.
-    if (state == AppLifecycleState.paused) await HomeWidgets.update();
+    if (state == AppLifecycleState.paused) {
+      _pausedAt = DateTime.now();
+      await HomeWidgets.update();
+    }
     if (state != AppLifecycleState.resumed) return;
+    // Uzun süre (30 dk+) sonra dönünce giriş ekranı yeniden gelsin.
+    final away = _pausedAt == null ? Duration.zero : DateTime.now().difference(_pausedAt!);
+    _pausedAt = null;
+    if (away >= const Duration(minutes: 30) && mounted) setState(() => _launcher = true);
     // Widget'tan sesle eklenen etkinlik, ✅ ya da bildirimden "Tamamlandı" olmuş olabilir.
     await Store.instance.load(fresh: true);
     if (mounted) setState(() {});
@@ -144,7 +174,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final trackers = store.trackers;
-    return Scaffold(
+    final shell = Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
@@ -221,6 +251,27 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
             ),
           ),
         ),
+      ),
+    );
+    // Giriş ekranı, alttaki sayfalar kurulu kalsın diye üstte durur
+    // (ör. widget'tan sesli ekleme gelince Program sayfası hazır olmalı).
+    return PopScope(
+      // Bir bölümdeyken geri tuşu giriş ekranına döner; giriş ekranında uygulamadan çıkar.
+      canPop: _launcher,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _launcher = true);
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          shell,
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: _launcher
+                ? LauncherPage(key: const ValueKey('launcher'), onOpen: _openFromLauncher)
+                : const SizedBox.shrink(),
+          ),
+        ],
       ),
     );
   }

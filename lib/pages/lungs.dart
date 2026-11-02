@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
-import '../theme.dart';
 import '../trackers.dart';
 
 /// Sigara takibi mi (akciğer kartı gösterilir)?
@@ -39,17 +38,19 @@ Duration? timeToClean(List<DateTime> events, DateTime now) {
   return Duration(minutes: (hours * 60).round());
 }
 
-/// Sigara sayfasındaki akciğer kartı: içtikçe kararır, içmedikçe temizlenir.
-class LungsCard extends StatefulWidget {
-  const LungsCard({super.key, required this.tracker});
+/// Sigara sayfasının üst kısmı: nefes alan büyük akciğer, durumu ve altında [counter]
+/// (sayaç). İçtikçe kararır, içmedikçe temizlenir.
+class LungsHero extends StatefulWidget {
+  const LungsHero({super.key, required this.tracker, required this.counter});
 
   final Tracker tracker;
+  final Widget counter;
 
   @override
-  State<LungsCard> createState() => _LungsCardState();
+  State<LungsHero> createState() => _LungsHeroState();
 }
 
-class _LungsCardState extends State<LungsCard> with SingleTickerProviderStateMixin {
+class _LungsHeroState extends State<LungsHero> with SingleTickerProviderStateMixin {
   // Nefes alıp verme: 4 sn'de bir genişler / daralır.
   late final AnimationController _breath =
       AnimationController(vsync: this, duration: const Duration(milliseconds: 2000))
@@ -92,55 +93,56 @@ class _LungsCardState extends State<LungsCard> with SingleTickerProviderStateMix
       curve: Curves.easeOutCubic,
       builder: (context, d, _) {
         final (label, color) = _status(d);
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppTheme.surface1,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.border),
-          ),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 130,
-                height: 130,
-                child: CustomPaint(painter: _LungsPainter(d, _breath)),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Akciğerlerin',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                    const SizedBox(height: 4),
-                    Text(label,
-                        style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 18)),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: d,
-                        minHeight: 8,
-                        color: color,
-                        backgroundColor: AppTheme.surface3,
-                      ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 240,
+              height: 220,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Arka parıltı: temizken yeşilimsi, kirlendikçe kırmızı
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(colors: [
+                        color.withValues(alpha: 0.22),
+                        Colors.transparent,
+                      ]),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      left == null
-                          ? 'İçmedikçe böyle kalır 💪'
-                          : '%${(d * 100).round()} kirli · içmezsen ~${_fmt(left)} sonra temiz',
-                      style: TextStyle(fontSize: 12, color: muted),
-                    ),
-                    const SizedBox(height: 4),
-                    Text('Temsili gösterim; gerçek iyileşme daha uzun sürer.',
-                        style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.7))),
-                  ],
-                ),
+                  ),
+                  SizedBox(
+                    width: 200,
+                    height: 200,
+                    child: CustomPaint(painter: _LungsPainter(d, _breath)),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: color.withValues(alpha: 0.5)),
+              ),
+              child: Text('🫁 $label · %${(d * 100).round()} kirli',
+                  style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 13)),
+            ),
+            const SizedBox(height: 14),
+            widget.counter,
+            const SizedBox(height: 8),
+            Text(
+              left == null
+                  ? 'Akciğerlerin temiz, içmedikçe böyle kalır 💪'
+                  : 'İçmezsen ~${_fmt(left)} sonra temiz',
+              style: TextStyle(fontSize: 12, color: muted),
+            ),
+            Text('Temsili gösterim; gerçek iyileşme daha uzun sürer.',
+                style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.7))),
+          ],
         );
       },
     );

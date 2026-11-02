@@ -362,10 +362,6 @@ class _TrackerPageState extends State<TrackerPage> {
                             ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                   ],
                   const SizedBox(height: 16),
-                  if (isSmokingTracker(t)) ...[
-                    LungsCard(tracker: t),
-                    const SizedBox(height: 16),
-                  ],
                   _milestoneStrip(context, elapsed ?? Duration.zero),
                   const SizedBox(height: 20),
                   // Butonlar
@@ -543,6 +539,11 @@ class _TrackerPageState extends State<TrackerPage> {
           ),
         ],
       );
+    }
+
+    // Sigara: halka yerine nefes alan akciğer, sayaç altında.
+    if (isSmokingTracker(t)) {
+      return Center(child: LungsHero(tracker: t, counter: center));
     }
 
     return Center(
