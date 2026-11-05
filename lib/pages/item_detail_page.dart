@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../auto_complete.dart';
 import '../categories.dart';
 import '../models.dart';
 import '../storage.dart';
@@ -31,6 +32,77 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
   static const _gap = 4.0;
 
   final store = Store.instance;
+
+  /// Bağlı uygulamada bugün geçen süre: "25 / 30 dk" + ilerleme çubuğu. Çekince yenilenir.
+  Widget _appProgress(BuildContext context, ScheduleItem item, Color c) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final target = item.durationMinutes;
+    return FutureBuilder<Duration?>(
+      future: AutoComplete.spentToday(item),
+      builder: (context, snap) {
+        final spent = snap.data;
+        final mins = spent?.inMinutes ?? 0;
+        final done = store.isDone(item, dateOnly(DateTime.now()));
+        final ratio = (mins / target).clamp(0.0, 1.0);
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppTheme.surface1,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: done ? c : AppTheme.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.phone_android_rounded, size: 20, color: c),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('${item.appLabel} · bugün',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                  if (snap.connectionState == ConnectionState.waiting)
+                    const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                  else
+                    Text(
+                      spent == null
+                          ? 'İzin yok'
+                          : done && mins >= target
+                              ? '✅ $mins / $target dk'
+                              : '$mins / $target dk',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: ratio,
+                  minHeight: 8,
+                  backgroundColor: AppTheme.surface3,
+                  color: c,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                spent == null
+                    ? 'Süreyi görmek için Ayarlar > Kullanım erişimi iznini ver'
+                    : mins >= target
+                        ? 'Hedef tamamlandı'
+                        : 'Tamamlanmak için ${target - mins} dk kaldı',
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +193,10 @@ class _ItemDetailPageState extends State<ItemDetailPage> {
                 ],
               ),
             ),
+          ],
+          if (item.hasApp && item.occursOn(today)) ...[
+            const SizedBox(height: 16),
+            _appProgress(context, item, c),
           ],
           const SizedBox(height: 20),
           // Seri kartı
