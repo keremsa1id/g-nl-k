@@ -30,23 +30,34 @@ int xpToNext(int level) => 100 + (level - 1) * 50;
   return (level, left, xpToNext(level));
 }
 
-const _titles = [
-  (1, '🌱', 'Acemi'),
-  (3, '🌿', 'Çırak'),
-  (5, '🔥', 'Kararlı'),
-  (8, '⚡', 'Disiplinli'),
-  (12, '🛡️', 'İrade Sahibi'),
-  (17, '🏆', 'Usta'),
-  (25, '👑', 'Efsane'),
+/// Rütbe ligleri (alttan üste): emoji, ad, renk. Her lig 3 kademe (3 → 2 → 1),
+/// her kademe [_levelsPerDivision] seviye sürer. Örn. seviye 7-8 = Gümüş 3.
+const _leagues = [
+  ('🥉', 'Bronz', 0xFFCD7F32),
+  ('🥈', 'Gümüş', 0xFFC0C7CF),
+  ('🥇', 'Altın', 0xFFFFC107),
+  ('💠', 'Platin', 0xFF4DD0E1),
+  ('💎', 'Elmas', 0xFF64B5F6),
 ];
+const _levelsPerDivision = 2;
+const _divisions = 3;
+const _masterFrom = _leagues.length * _divisions * _levelsPerDivision + 1; // 31
+const _legendFrom = _masterFrom + 10; // 41
 
-/// Seviyenin unvanı: (emoji, ad).
-(String, String) titleFor(int level) {
-  var t = _titles.first;
-  for (final x in _titles) {
-    if (level >= x.$1) t = x;
-  }
-  return (t.$2, t.$3);
+/// Seviyenin rütbesi: (emoji, ad, renk ARGB). Örn. (🥈, 'Gümüş 2', 0xFFC0C7CF).
+(String, String, int) rankFor(int level) {
+  if (level >= _legendFrom) return ('👑', 'Efsane', 0xFFFF5252);
+  if (level >= _masterFrom) return ('🏆', 'Usta', 0xFFB388FF);
+  final step = (max(1, level) - 1) ~/ _levelsPerDivision; // 0..14
+  final (emoji, name, color) = _leagues[step ~/ _divisions];
+  return (emoji, '$name ${_divisions - step % _divisions}', color);
+}
+
+/// Bir sonraki rütbeye geçilen seviye (Efsane'de null).
+int? nextRankLevel(int level) {
+  if (level >= _legendFrom) return null;
+  if (level >= _masterFrom) return _legendFrom;
+  return ((max(1, level) - 1) ~/ _levelsPerDivision + 1) * _levelsPerDivision + 1;
 }
 
 // ---------- Profil ----------
