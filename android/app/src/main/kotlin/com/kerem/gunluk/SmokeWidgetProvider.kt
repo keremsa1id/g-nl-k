@@ -4,11 +4,11 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
-import android.os.SystemClock
-import android.view.View
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetProvider
+import java.util.Calendar
+import java.util.Locale
 
 /** Ana ekran "Sigara içtim" widget'ı: dokununca uygulama açılmadan arka planda kaydeder. */
 class SmokeWidgetProvider : HomeWidgetProvider() {
@@ -31,25 +31,20 @@ class SmokeWidgetProvider : HomeWidgetProvider() {
         )
 
         if (!data.getBoolean("smoke_has_tracker", false)) {
-            v.setViewVisibility(R.id.since, View.GONE)
-            v.setViewVisibility(R.id.empty, View.VISIBLE)
-            v.setTextViewText(R.id.today, "Önce uygulamada Sigara takibi ekle")
+            v.setTextViewText(R.id.count, "—")
+            v.setTextViewText(R.id.label, "Önce uygulamada Sigara takibi ekle")
             return v
         }
 
-        // Son sigaradan beri geçen süre: widget kendi kendine saymaya devam eder.
-        val last = data.getString("smoke_last", null)?.toLongOrNull()
-        if (last == null) {
-            v.setViewVisibility(R.id.since, View.GONE)
-            v.setViewVisibility(R.id.empty, View.VISIBLE)
-        } else {
-            val elapsed = maxOf(0L, System.currentTimeMillis() - last)
-            v.setViewVisibility(R.id.empty, View.GONE)
-            v.setViewVisibility(R.id.since, View.VISIBLE)
-            v.setChronometer(R.id.since, SystemClock.elapsedRealtime() - elapsed, null, true)
-        }
-        val today = data.getString("smoke_today", "0")
-        v.setTextViewText(R.id.today, "Bugün: $today")
+        // Sayı başka bir güne aitse (gece yarısı geçti) bugün henüz 0.
+        val cal = Calendar.getInstance()
+        val key = String.format(
+            Locale.US, "%04d-%02d-%02d",
+            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
+        )
+        val count = if (data.getString("smoke_day", null) == key) data.getString("smoke_today", "0") else "0"
+        v.setTextViewText(R.id.count, count)
+        v.setTextViewText(R.id.label, "sigara · bugün")
         return v
     }
 }
