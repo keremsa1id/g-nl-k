@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../auto_complete.dart';
 import '../categories.dart';
 import '../game.dart';
 import '../models.dart';
@@ -35,7 +36,7 @@ class SchedulePage extends StatefulWidget {
   State<SchedulePage> createState() => _SchedulePageState();
 }
 
-class _SchedulePageState extends State<SchedulePage> {
+class _SchedulePageState extends State<SchedulePage> with WidgetsBindingObserver {
   static const double slotHeight = 64;
   final store = Store.instance;
   DateTime _day = dateOnly(DateTime.now());
@@ -51,11 +52,37 @@ class _SchedulePageState extends State<SchedulePage> {
     _scroll = ScrollController(initialScrollOffset: idx * slotHeight);
     Notifier.changes.addListener(_refresh);
     SchedulePage.quickAddRequest.addListener(_quickAdd);
-    _tick = Timer.periodic(const Duration(minutes: 1), (_) => _refresh());
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      _refresh();
+      _autoComplete();
+    });
+    WidgetsBinding.instance.addObserver(this);
+    _autoComplete();
+  }
+
+  // İngilizce uygulamasından dönünce süreyi hemen kontrol et.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _autoComplete();
+  }
+
+  /// Uygulamaya bağlı etkinliklerin süresi dolduysa kendiliğinden tamamlar.
+  Future<void> _autoComplete() async {
+    final done = await AutoComplete.checkToday();
+    if (!mounted || done.isEmpty) return;
+    setState(() {});
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(done.length == 1
+            ? '✅ ${done.first.title} otomatik tamamlandı (${done.first.appLabel} süresi doldu)'
+            : '✅ ${done.length} etkinlik otomatik tamamlandı'),
+      ));
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     Notifier.changes.removeListener(_refresh);
     SchedulePage.quickAddRequest.removeListener(_quickAdd);
     _tick?.cancel();

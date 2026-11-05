@@ -2,7 +2,65 @@ import 'package:flutter/material.dart';
 
 import '../categories.dart';
 import '../models.dart';
+import '../screen_time.dart';
 import '../storage.dart';
+
+/// Telefondaki uygulamalardan birini seçtiren arama listesi.
+class _AppPicker extends StatefulWidget {
+  const _AppPicker({required this.apps});
+
+  final List<({String package, String label})> apps;
+
+  @override
+  State<_AppPicker> createState() => _AppPickerState();
+}
+
+class _AppPickerState extends State<_AppPicker> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.toLowerCase();
+    final list = [
+      for (final a in widget.apps)
+        if (q.isEmpty || a.label.toLowerCase().contains(q) || a.package.contains(q)) a,
+    ];
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.7,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                autofocus: true,
+                onChanged: (v) => setState(() => _q = v),
+                decoration: const InputDecoration(
+                  hintText: 'Uygulama ara (örn. it english)',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+              ),
+            ),
+            Expanded(
+              child: list.isEmpty
+                  ? const Center(child: Text('Uygulama bulunamadı'))
+                  : ListView.builder(
+                      itemCount: list.length,
+                      itemBuilder: (_, i) => ListTile(
+                        title: Text(list[i].label),
+                        subtitle: Text(list[i].package,
+                            style: const TextStyle(fontSize: 11)),
+                        onTap: () => Navigator.pop(context, list[i]),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 const itemColors = <Color>[
   Color(0xFFE53935),
@@ -60,6 +118,8 @@ class _ItemEditorState extends State<ItemEditor> {
   bool _durationTouched = false;
   DateTime? _endDate;
   int? _alarm; // null = kapalı, yoksa başlangıçtan kaç dk önce
+  String? _appPackage; // süreyi otomatik izlenecek telefon uygulaması
+  String _appLabel = '';
   late final TextEditingController _note;
   String? _error;
 
@@ -71,6 +131,8 @@ class _ItemEditorState extends State<ItemEditor> {
     _note = TextEditingController(text: e?.note ?? '');
     _endDate = e?.endDate;
     _alarm = e?.alarmMinutesBefore;
+    _appPackage = e?.appPackage;
+    _appLabel = e?.appLabel ?? '';
     _group = categoryOf(e?.category)?.group;
     _durationTouched = e != null;
     _start = e?.startMinutes ?? widget.startMinutes;
@@ -181,6 +243,82 @@ class _ItemEditorState extends State<ItemEditor> {
         endDate: end == null ? null : dateOnly(end),
         note: _note.text.trim(),
         alarmMinutesBefore: _alarm,
+        appPackage: _appPackage,
+        appLabel: _appPackage == null ? '' : _appLabel,
+      ),
+    );
+  }
+
+  Future<void> _pickApp() async {
+    if (!await ScreenTime.hasPermission()) {
+      if (!mounted) return;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Kullanım erişimi gerekli'),
+          content: const Text(
+              'Uygulamada geçirdiğin süreyi görebilmek için Ayarlar\'dan "Kullanım erişimi" '
+              'iznini vermelisin. Veriler telefonundan çıkmaz.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Vazgeç')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ayarları aç')),
+          ],
+        ),
+      );
+      if (go == true) await ScreenTime.openSettings();
+      return;
+    }
+    final apps = await ScreenTime.installedApps();
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<({String package, String label})>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => _AppPicker(apps: apps),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _appPackage = picked.package;
+        _appLabel = picked.label;
+      });
+    }
+  }
+
+  /// "Uygulamayla otomatik tamamla": bağlı uygulamada etkinlik süresi kadar vakit geçince biter.
+  Widget _appSection(BuildContext context) {
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final accent = itemColors[_color];
+    final on = _appPackage != null;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: on ? accent.withValues(alpha: 0.12) : const Color(0xFF151518),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: on ? accent : const Color(0xFF26262B)),
+      ),
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.phone_android_rounded, color: on ? accent : muted),
+        title: Text(on ? _appLabel : 'Uygulamayla otomatik tamamla',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(
+          on
+              ? 'Bugün bu uygulamada ${fmtDuration(_duration)} geçirince kendiliğinden tamamlanır'
+              : 'Örn. İngilizce uygulaması: süre dolunca etkinlik biter',
+          style: TextStyle(fontSize: 12, color: muted),
+        ),
+        trailing: on
+            ? IconButton(
+                tooltip: 'Bağlantıyı kaldır',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => setState(() {
+                  _appPackage = null;
+                  _appLabel = '';
+                }),
+              )
+            : const Icon(Icons.add_rounded),
+        onTap: _pickApp,
       ),
     );
   }
@@ -345,6 +483,10 @@ class _ItemEditorState extends State<ItemEditor> {
             _remindersSection(context),
             const SizedBox(height: 12),
             _alarmSection(context),
+            if (ScreenTime.supported) ...[
+              const SizedBox(height: 12),
+              _appSection(context),
+            ],
             const SizedBox(height: 16),
             TextField(
               controller: _note,
