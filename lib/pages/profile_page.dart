@@ -158,7 +158,9 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _levelCard(BuildContext context) {
     final xp = game.totalXp;
     final (level, into, need) = levelFor(xp);
-    final (emoji, title) = titleFor(level);
+    final (emoji, rank, rankArgb) = rankFor(level);
+    final rankColor = Color(rankArgb);
+    final nextAt = nextRankLevel(level);
     final todayXp = game.xpOn(DateTime.now());
     return Container(
       padding: const EdgeInsets.all(20),
@@ -183,7 +185,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppTheme.black.withValues(alpha: 0.4),
-                  border: Border.all(color: AppTheme.redBright, width: 2),
+                  border: Border.all(color: rankColor, width: 2.5),
+                  boxShadow: [
+                    BoxShadow(color: rankColor.withValues(alpha: 0.35), blurRadius: 14),
+                  ],
                 ),
                 child: Text(emoji, style: const TextStyle(fontSize: 34)),
               ),
@@ -195,9 +200,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     Text('Seviye $level',
                         style: const TextStyle(
                             fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                    Text(title,
-                        style: const TextStyle(
-                            color: AppTheme.redBright, fontWeight: FontWeight.w700)),
+                    Text(rank,
+                        style: TextStyle(
+                            color: rankColor, fontSize: 16, fontWeight: FontWeight.w800)),
+                    if (nextAt != null)
+                      Text('Sonraki: ${rankFor(nextAt).$2} · Seviye $nextAt',
+                          style: const TextStyle(fontSize: 11)),
                   ],
                 ),
               ),
