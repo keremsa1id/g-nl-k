@@ -72,16 +72,15 @@ class HomeWidgets {
     await _updateSmoke();
   }
 
-  /// "Sigara içtim" widget'ı: son sigara zamanı ve bugünkü sayı.
+  /// "Sigara içtim" widget'ı: bugün içilen sayı (hangi güne ait olduğuyla).
   static Future<void> _updateSmoke() async {
     try {
       final t = Store.instance.trackers.where(isSmokingTracker).firstOrNull;
       await HomeWidget.saveWidgetData<bool>('smoke_has_tracker', t != null);
       if (t != null) {
-        await HomeWidget.saveWidgetData<String>(
-            'smoke_last', t.events.lastOrNull?.millisecondsSinceEpoch.toString());
-        await HomeWidget.saveWidgetData<String>(
-            'smoke_today', '${t.countOn(DateTime.now())}');
+        final now = DateTime.now();
+        await HomeWidget.saveWidgetData<String>('smoke_day', dayKey(now));
+        await HomeWidget.saveWidgetData<String>('smoke_today', '${t.countOn(now)}');
       }
       await HomeWidget.updateWidget(androidName: _smokeProvider);
     } catch (_) {}
@@ -188,7 +187,7 @@ Future<void> _logSmoke() async {
     ..sort();
   await store.saveTrackers();
   await Notifier.showInfo('🚬 Kaydedildi · bugün ${t.countOn(now)}. sigara',
-      'Sayaç sıfırlandı · $xpPerEvent XP. Yanlışsa uygulamadan silebilirsin.');
+      '$xpPerEvent XP · Yanlışsa uygulamadan silebilirsin.');
   await HomeWidgets.update();
 }
 

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ana ekran "Sigara içtim" widget'ı: tek dokunuşla kaydeder, son sigaradan beri süreyi sayar -->
+<!-- Ana ekran "Sigara içtim" widget'ı: tek dokunuşla kaydeder, bugün içilen sayıyı gösterir -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
@@ -42,35 +42,19 @@
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/label"
+            android:id="@+id/count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Son sigaradan beri"
-            android:textColor="#B3FFFFFF"
-            android:textSize="10sp" />
-
-        <Chronometer
-            android:id="@+id/since"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:text="0"
             android:textColor="#FFFFFF"
-            android:textSize="18sp"
+            android:textSize="26sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/empty"
+            android:id="@+id/label"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="—"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/today"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:text="sigara · bugün"
             android:textColor="#B3FFFFFF"
             android:textSize="10sp" />
     </LinearLayout>
