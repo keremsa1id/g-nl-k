@@ -105,6 +105,14 @@
             <meta-data android:name="android.appwidget.provider"
                 android:resource="@xml/widget_quick_info"/>
         </receiver>
+        <receiver android:name=".SmokeWidgetProvider" android:label="Ritmo · Sigara içtim"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_smoke_info"/>
+        </receiver>
         <!-- Widget'taki ✅ butonları: uygulama açılmadan arka planda işaretler -->
         <receiver android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
             android:exported="true">

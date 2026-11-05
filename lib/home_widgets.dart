@@ -4,9 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
+import 'game.dart' show xpPerEvent;
 import 'models.dart';
 import 'notifications.dart';
 import 'pages/item_editor.dart' show itemColors;
+import 'pages/lungs.dart' show isSmokingTracker;
 import 'storage.dart';
 import 'voice_parser.dart';
 
@@ -67,17 +69,40 @@ class HomeWidgets {
       await HomeWidget.saveWidgetData<String>('today_json', jsonEncode(days));
       await HomeWidget.updateWidget(androidName: _todayProvider);
     } catch (_) {}
+    await _updateSmoke();
   }
+
+  /// "Sigara içtim" widget'ı: son sigara zamanı ve bugünkü sayı.
+  static Future<void> _updateSmoke() async {
+    try {
+      final t = Store.instance.trackers.where(isSmokingTracker).firstOrNull;
+      await HomeWidget.saveWidgetData<bool>('smoke_has_tracker', t != null);
+      if (t != null) {
+        await HomeWidget.saveWidgetData<String>(
+            'smoke_last', t.events.lastOrNull?.millisecondsSinceEpoch.toString());
+        await HomeWidget.saveWidgetData<String>(
+            'smoke_today', '${t.countOn(DateTime.now())}');
+      }
+      await HomeWidget.updateWidget(androidName: _smokeProvider);
+    } catch (_) {}
+  }
+
+  static const _smokeProvider = 'SmokeWidgetProvider';
 }
 
 /// Arka plan işleri (uygulama açılmadan):
 /// - gunluk://done?id=5&day=2026-10-30 : widget'taki ✅
 /// - gunluk://add?text=... : widget'taki 🎙️ ile söylenen komut
+/// - gunluk://smoke : "Sigara içtim" widget'ı
 @pragma('vm:entry-point')
 Future<void> homeWidgetCallback(Uri? uri) async {
   if (uri == null) return;
   if (uri.host == 'add') {
     await _voiceAdd(uri.queryParameters['text'] ?? '');
+    return;
+  }
+  if (uri.host == 'smoke') {
+    await _logSmoke();
     return;
   }
   if (uri.host != 'done') return;
@@ -137,6 +162,33 @@ Future<void> _voiceAdd(String text) async {
     case VoiceUnknown(:final message):
       await Notifier.showInfo('🤔 Anlayamadım', '$message\n"$text"');
   }
+  await HomeWidgets.update();
+}
+
+/// Widget'tan tek dokunuşla sigara kaydı; sonucu bildirimle söyler.
+Future<void> _logSmoke() async {
+  final store = Store.instance;
+  await store.load(fresh: true);
+  await Notifier.init(handlers: false);
+  final t = store.trackers.where(isSmokingTracker).firstOrNull;
+  if (t == null) {
+    await Notifier.showInfo('🚬 Sigara takibi yok', 'Önce uygulamada bir Sigara takibi ekle.');
+    await HomeWidgets.update();
+    return;
+  }
+  final now = DateTime.now();
+  // Yanlışlıkla iki kez dokunulursa çift kayıt olmasın.
+  final last = t.events.lastOrNull;
+  if (last != null && now.difference(last).inSeconds.abs() < 30) {
+    await HomeWidgets.update();
+    return;
+  }
+  t.events
+    ..add(now)
+    ..sort();
+  await store.saveTrackers();
+  await Notifier.showInfo('🚬 Kaydedildi · bugün ${t.countOn(now)}. sigara',
+      'Sayaç sıfırlandı · $xpPerEvent XP. Yanlışsa uygulamadan silebilirsin.');
   await HomeWidgets.update();
 }
 
