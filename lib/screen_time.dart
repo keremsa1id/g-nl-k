@@ -106,6 +106,30 @@ class ScreenTime {
     if (supported) await _channel.invokeMethod<void>('openSettings');
   }
 
+  /// Telefondaki açılabilir uygulamalar (paket adı, ad), ada göre sıralı.
+  static Future<List<({String package, String label})>> installedApps() async {
+    if (!supported) return [];
+    final raw = await _channel.invokeMethod<List<Object?>>('apps');
+    return [
+      for (final e in raw ?? const <Object?>[])
+        if (e is Map) (package: e['package'] as String, label: e['label'] as String),
+    ];
+  }
+
+  /// [package] uygulamasının [from, to) arasındaki ön plan süresi. İzin yoksa null.
+  static Future<Duration?> usageOf(String package, DateTime from, DateTime to) async {
+    if (!await hasPermission()) return null;
+    try {
+      final list = await query(from, to);
+      for (final a in list) {
+        if (a.package == package) return a.duration;
+      }
+      return Duration.zero;
+    } on PlatformException {
+      return null;
+    }
+  }
+
   /// [from, to) arasındaki kullanım, en çok kullanılandan aza.
   static Future<List<AppUsage>> query(DateTime from, DateTime to) async {
     if (!supported) return [];

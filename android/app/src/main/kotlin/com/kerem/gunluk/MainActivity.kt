@@ -129,6 +129,7 @@ class MainActivity : FlutterFragmentActivity() {
                         openUsageSettings()
                         result.success(null)
                     }
+                    "apps" -> result.success(launchableApps())
                     "query" -> {
                         val start = call.argument<Number>("start")!!.toLong()
                         val end = call.argument<Number>("end")!!.toLong()
@@ -150,6 +151,18 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** Telefonda açılabilen (ana ekranda simgesi olan) uygulamalar, ada göre sıralı. */
+    private fun launchableApps(): List<Map<String, String>> {
+        val pm = packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return pm.queryIntentActivities(intent, 0)
+            .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+            .filter { it.first != packageName }
+            .distinctBy { it.first }
+            .sortedBy { it.second.lowercase() }
+            .map { mapOf("package" to it.first, "label" to it.second) }
     }
 
     private fun hasUsagePermission(): Boolean {

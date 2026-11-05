@@ -81,6 +81,8 @@ class ScheduleItem {
     this.endDate,
     this.note = '',
     this.alarmMinutesBefore,
+    this.appPackage,
+    this.appLabel = '',
     List<Reminder>? reminders,
     bool notify = false,
   }) : reminders = reminders ?? (notify ? const [Reminder(5)] : const <Reminder>[]);
@@ -98,6 +100,13 @@ class ScheduleItem {
   final DateTime? endDate; // tekrarlananlar için son gün (dahil), null = süresiz
   final String note; // etkinlik açıklaması
   final int? alarmMinutesBefore; // null = alarm yok; yoksa başlangıçtan kaç dk önce çalar
+
+  /// Bağlı telefon uygulaması (paket adı). O gün bu uygulamada [durationMinutes]
+  /// kadar geçirilince etkinlik kendiliğinden tamamlanır. null = elle tamamlanır.
+  final String? appPackage;
+  final String appLabel;
+
+  bool get hasApp => appPackage != null;
 
   bool get notify => reminders.isNotEmpty;
 
@@ -146,6 +155,8 @@ class ScheduleItem {
         if (endDate != null) 'endDate': endDate!.toIso8601String(),
         if (note.isNotEmpty) 'note': note,
         if (alarmMinutesBefore != null) 'alarm': alarmMinutesBefore,
+        if (appPackage != null) 'app': appPackage,
+        if (appPackage != null && appLabel.isNotEmpty) 'appLabel': appLabel,
       };
 
   factory ScheduleItem.fromJson(Map<String, dynamic> j) => ScheduleItem(
@@ -166,6 +177,8 @@ class ScheduleItem {
         endDate: DateTime.tryParse((j['endDate'] as String?) ?? ''),
         note: (j['note'] as String?) ?? '',
         alarmMinutesBefore: j['alarm'] as int?,
+        appPackage: j['app'] as String?,
+        appLabel: (j['appLabel'] as String?) ?? '',
       );
 }
 
