@@ -41,8 +41,9 @@ const _leagues = [
 ];
 const _levelsPerDivision = 2;
 const _divisions = 3;
-const _masterFrom = _leagues.length * _divisions * _levelsPerDivision + 1; // 31
-const _legendFrom = _masterFrom + 10; // 41
+// Liste uzunluğu const ifadede kullanılamaz; bu yüzden final.
+final _masterFrom = _leagues.length * _divisions * _levelsPerDivision + 1; // 31
+final _legendFrom = _masterFrom + 10; // 41
 
 /// Seviyenin rütbesi: (emoji, ad, renk ARGB). Örn. (🥈, 'Gümüş 2', 0xFFC0C7CF).
 (String, String, int) rankFor(int level) {
