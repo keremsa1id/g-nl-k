@@ -36,6 +36,7 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
   late String _emoji;
   late bool _purchases;
   late AutoMode _auto;
+  late AppGroup _group;
   late List<String> _apps;
   final Map<String, String> _appLabels = {};
   String? _error;
@@ -55,6 +56,7 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
     _emoji = e?.emoji ?? '🎯';
     _purchases = e?.tracksPurchases ?? false;
     _auto = e?.autoMode ?? AutoMode.off;
+    _group = e?.autoGroup ?? AppGroup.social;
     _apps = [...?e?.autoApps];
     if (_apps.isNotEmpty) _loadLabels();
   }
@@ -146,7 +148,11 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
       _pack.text = p.packName;
       _packSize.text = '${p.packSize}';
       _packPrice.text = _num(p.packPrice);
-      _auto = p.autoSocial && ScreenTime.supported ? AutoMode.social : AutoMode.off;
+      final auto = ScreenTime.supported;
+      _auto = auto ? p.autoMode : AutoMode.off;
+      _group = p.autoGroup;
+      _apps = auto ? [...p.autoApps] : [];
+      if (_apps.isNotEmpty) _loadLabels();
       _error = null;
     });
     if (_auto != AutoMode.off) _ensurePermission();
@@ -185,9 +191,12 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
     // Otomatik algılama ayarı değiştiyse bu andan itibaren izle (geçmişe dönük kayıt yok).
     final mode = _auto == AutoMode.apps && _apps.isEmpty ? AutoMode.off : _auto;
     final apps = mode == AutoMode.apps ? _apps : <String>[];
-    final changed = t.autoMode != mode || t.autoApps.join(',') != apps.join(',');
+    final changed = t.autoMode != mode ||
+        t.autoApps.join(',') != apps.join(',') ||
+        (mode == AutoMode.group && t.autoGroup != _group);
     t
       ..autoMode = mode
+      ..autoGroup = _group
       ..autoApps = [...apps];
     if (mode == AutoMode.off) {
       t
@@ -398,9 +407,9 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
                     onSelected: (_) => _setAuto(AutoMode.off),
                   ),
                   ChoiceChip(
-                    label: const Text('Sosyal medya uygulamaları'),
-                    selected: _auto == AutoMode.social,
-                    onSelected: (_) => _setAuto(AutoMode.social),
+                    label: const Text('Uygulama grubu'),
+                    selected: _auto == AutoMode.group,
+                    onSelected: (_) => _setAuto(AutoMode.group),
                   ),
                   ChoiceChip(
                     label: const Text('Seçtiğim uygulamalar'),
@@ -409,12 +418,29 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
                   ),
                 ],
               ),
-              if (_auto == AutoMode.social)
+              if (_auto == AutoMode.group) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final g in AppGroup.values)
+                      if (g != AppGroup.other)
+                        ChoiceChip(
+                          label: Text('${g.emoji} ${g.label}'),
+                          selected: _group == g,
+                          onSelected: (_) => setState(() => _group = g),
+                        ),
+                  ],
+                ),
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('Instagram, X, TikTok, Facebook, WhatsApp, Snapchat, Reddit…',
+                  child: Text(
+                      _group == AppGroup.social
+                          ? 'Instagram, X, TikTok, Facebook, WhatsApp, Snapchat, Reddit…'
+                          : 'Telefonda bu gruba giren tüm uygulamalar',
                       style: TextStyle(color: muted, fontSize: 12)),
                 ),
+              ],
               if (_auto == AutoMode.apps)
                 ListTile(
                   contentPadding: EdgeInsets.zero,
