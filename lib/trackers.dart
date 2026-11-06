@@ -14,8 +14,13 @@ class Tracker {
     List<DateTime>? events,
     List<PackPurchase>? packs,
     this.quitStart,
+    this.autoMode = AutoMode.off,
+    List<String>? autoApps,
+    this.autoSync,
+    this.autoExit,
   })  : events = events ?? [],
-        packs = packs ?? [];
+        packs = packs ?? [],
+        autoApps = autoApps ?? [];
 
   final String id;
   String name;
@@ -30,14 +35,23 @@ class Tracker {
   final List<PackPurchase> packs; // sıralı
   DateTime? quitStart; // kayıt olmadan sayacı başlatmak için
 
-  bool get tracksPurchases => packName.trim().isNotEmpty;
+  /// Telefondaki uygulama kullanımından otomatik kayıt: her girişte bir kayıt eklenir.
+  AutoMode autoMode;
+  List<String> autoApps; // autoMode == apps iken izlenen paketler
+  DateTime? autoSync; // otomatik algılamanın en son baktığı an
+  DateTime? autoExit; // izlenen uygulamadan en son çıkış (sayaç buradan başlar)
 
-  /// Sayacın başladığı an: son kayıt veya manuel başlangıç (hangisi sonraysa).
+  bool get tracksPurchases => packName.trim().isNotEmpty;
+  bool get isAuto => autoMode != AutoMode.off;
+
+  /// Sayacın başladığı an: son kayıt, manuel başlangıç veya izlenen uygulamadan
+  /// çıkış (hangisi sonraysa) — uygulamanın içinde geçen süre sayılmaz.
   DateTime? get counterStart {
-    final last = events.isEmpty ? null : events.last;
-    if (last == null) return quitStart;
-    if (quitStart == null) return last;
-    return last.isAfter(quitStart!) ? last : quitStart;
+    DateTime? best;
+    for (final d in [events.isEmpty ? null : events.last, quitStart, autoExit]) {
+      if (d != null && (best == null || d.isAfter(best))) best = d;
+    }
+    return best;
   }
 
   int countOn(DateTime day) => events.where((t) => sameDay(t, day)).length;
@@ -54,6 +68,10 @@ class Tracker {
         'events': events.map((e) => e.toIso8601String()).toList(),
         'packs': packs.map((p) => p.toJson()).toList(),
         if (quitStart != null) 'quit': quitStart!.toIso8601String(),
+        if (isAuto) 'auto': autoMode.name,
+        if (autoApps.isNotEmpty) 'autoApps': autoApps,
+        if (autoSync != null) 'autoSync': autoSync!.toIso8601String(),
+        if (autoExit != null) 'autoExit': autoExit!.toIso8601String(),
       };
 
   factory Tracker.fromJson(Map<String, dynamic> j) => Tracker(
@@ -74,8 +92,16 @@ class Tracker {
             .toList()
           ..sort((a, b) => a.time.compareTo(b.time)),
         quitStart: DateTime.tryParse((j['quit'] as String?) ?? ''),
+        autoMode: AutoMode.values.firstWhere((m) => m.name == j['auto'],
+            orElse: () => AutoMode.off),
+        autoApps: ((j['autoApps'] as List<dynamic>?) ?? []).cast<String>().toList(),
+        autoSync: DateTime.tryParse((j['autoSync'] as String?) ?? ''),
+        autoExit: DateTime.tryParse((j['autoExit'] as String?) ?? ''),
       );
 }
+
+/// Otomatik algılama: kapalı, tüm sosyal medya uygulamaları ya da seçilen uygulamalar.
+enum AutoMode { off, social, apps }
 
 /// Hazır takip seçenekleri.
 class TrackerPreset {
@@ -100,6 +126,9 @@ class TrackerPreset {
         packSize: packSize,
         packPrice: packPrice,
       );
+
+  /// Sosyal medya takibi: uygulamalara girişler otomatik algılanır.
+  bool get autoSocial => name == 'Sosyal medya';
 }
 
 const trackerPresets = <TrackerPreset>[

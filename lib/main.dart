@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'auto_track.dart';
 import 'game.dart';
 import 'home_widgets.dart';
 import 'notifications.dart';
@@ -105,6 +106,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       await Notifier.requestPermissions();
       await Notifier.rescheduleAll(Store.instance.items);
       await Notifier.openFromLaunch();
+      await AutoTrack.sync();
       await Game.instance.refreshScreenTime();
       await Game.instance.refreshHealth();
     });
@@ -165,6 +167,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (mounted) setState(() {});
     Notifier.changes.value++;
     await Notifier.refreshExtras();
+    await AutoTrack.sync();
+    if (mounted) setState(() {});
     await Game.instance.refreshScreenTime();
     await Game.instance.refreshHealth();
     // Widget'tan ✅ basılmış olabilir.
