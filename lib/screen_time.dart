@@ -85,6 +85,16 @@ class AppUsage {
   final int launches;
 }
 
+/// Uygulamaya girilen an ile çıkılan an arası tek bir kullanım.
+class AppSession {
+  const AppSession(this.package, this.group, this.start, this.end);
+
+  final String package;
+  final AppGroup group;
+  final DateTime start;
+  final DateTime end;
+}
+
 /// Telefonun uygulama kullanım istatistikleri (yalnızca Android).
 class ScreenTime {
   static const _channel = MethodChannel('gunluk/usage');
@@ -128,6 +138,25 @@ class ScreenTime {
     } on PlatformException {
       return null;
     }
+  }
+
+  /// [from, to) arasındaki uygulama oturumları (giriş ve çıkış anı), zamana göre sıralı.
+  static Future<List<AppSession>> sessions(DateTime from, DateTime to) async {
+    if (!supported) return [];
+    final raw = await _channel.invokeMethod<List<Object?>>('sessions', {
+      'start': from.millisecondsSinceEpoch,
+      'end': to.millisecondsSinceEpoch,
+    });
+    return [
+      for (final e in raw ?? const <Object?>[])
+        if (e is Map)
+          AppSession(
+            e['package'] as String,
+            _groupFor(e['package'] as String, (e['category'] as num).toInt()),
+            DateTime.fromMillisecondsSinceEpoch((e['start'] as num).toInt()),
+            DateTime.fromMillisecondsSinceEpoch((e['end'] as num).toInt()),
+          ),
+    ];
   }
 
   /// [from, to) arasındaki kullanım, en çok kullanılandan aza.

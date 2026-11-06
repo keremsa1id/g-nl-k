@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../screen_time.dart';
 import '../storage.dart';
 import '../theme.dart';
 import '../trackers.dart';
@@ -34,6 +35,9 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
   late final TextEditingController _packPrice;
   late String _emoji;
   late bool _purchases;
+  late AutoMode _auto;
+  late List<String> _apps;
+  final Map<String, String> _appLabels = {};
   String? _error;
 
   bool get _isNew => widget.existing == null;
@@ -50,6 +54,76 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
     _packPrice = TextEditingController(text: _num(e?.packPrice ?? 0));
     _emoji = e?.emoji ?? '🎯';
     _purchases = e?.tracksPurchases ?? false;
+    _auto = e?.autoMode ?? AutoMode.off;
+    _apps = [...?e?.autoApps];
+    if (_apps.isNotEmpty) _loadLabels();
+  }
+
+  Future<void> _loadLabels() async {
+    try {
+      final all = await ScreenTime.installedApps();
+      if (!mounted) return;
+      setState(() {
+        for (final a in all) {
+          _appLabels[a.package] = a.label;
+        }
+      });
+    } catch (_) {}
+  }
+
+  /// Otomatik algılama için "Kullanım erişimi" izni gerekir; yoksa ayarlara yönlendir.
+  Future<bool> _ensurePermission() async {
+    if (await ScreenTime.hasPermission()) return true;
+    if (!mounted) return false;
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Kullanım erişimi gerekli'),
+        content: const Text(
+            'Uygulamalara girdiğini otomatik algılamak için Ayarlar\'dan "Kullanım erişimi" '
+            'iznini vermelisin. Veriler telefonundan çıkmaz.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Vazgeç')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Ayarları aç')),
+        ],
+      ),
+    );
+    if (go == true) await ScreenTime.openSettings();
+    return false;
+  }
+
+  Future<void> _setAuto(AutoMode mode) async {
+    if (mode == _auto) return;
+    // İzin yoksa ayarlara yönlendirilir; seçim yine kalır, izin gelince algılama başlar.
+    if (mode != AutoMode.off) await _ensurePermission();
+    if (!mounted) return;
+    setState(() => _auto = mode);
+    if (mode == AutoMode.apps && _apps.isEmpty) await _pickApps();
+  }
+
+  Future<void> _pickApps() async {
+    if (!await ScreenTime.hasPermission()) {
+      await _ensurePermission();
+      return;
+    }
+    final all = await ScreenTime.installedApps();
+    if (!mounted) return;
+    for (final a in all) {
+      _appLabels[a.package] = a.label;
+    }
+    final picked = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => _MultiAppPicker(apps: all, selected: _apps),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _apps = picked;
+        if (_apps.isEmpty && _auto == AutoMode.apps) _auto = AutoMode.off;
+      });
+    }
   }
 
   @override
@@ -72,8 +146,10 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
       _pack.text = p.packName;
       _packSize.text = '${p.packSize}';
       _packPrice.text = _num(p.packPrice);
+      _auto = p.autoSocial && ScreenTime.supported ? AutoMode.social : AutoMode.off;
       _error = null;
     });
+    if (_auto != AutoMode.off) _ensurePermission();
   }
 
   Future<void> _save() async {
@@ -105,6 +181,23 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
       ..packName = pack
       ..packSize = size <= 0 ? 1 : size
       ..packPrice = price;
+
+    // Otomatik algılama ayarı değiştiyse bu andan itibaren izle (geçmişe dönük kayıt yok).
+    final mode = _auto == AutoMode.apps && _apps.isEmpty ? AutoMode.off : _auto;
+    final apps = mode == AutoMode.apps ? _apps : <String>[];
+    final changed = t.autoMode != mode || t.autoApps.join(',') != apps.join(',');
+    t
+      ..autoMode = mode
+      ..autoApps = [...apps];
+    if (mode == AutoMode.off) {
+      t
+        ..autoSync = null
+        ..autoExit = null;
+    } else if (changed) {
+      t
+        ..autoSync = DateTime.now()
+        ..autoExit = null;
+    }
 
     if (_isNew) {
       await store.addTracker(t);
@@ -287,6 +380,51 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
                 ],
               ),
             ],
+            if (ScreenTime.supported) ...[
+              const SizedBox(height: 14),
+              Text('Otomatik algıla', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 2),
+              Text(
+                  'Uygulamaya her girdiğinde kayıt eklenir ve sayaç sıfırlanır; '
+                  'uygulamadan çıkınca yeniden başlar.',
+                  style: TextStyle(color: muted, fontSize: 12)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('Kapalı'),
+                    selected: _auto == AutoMode.off,
+                    onSelected: (_) => _setAuto(AutoMode.off),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Sosyal medya uygulamaları'),
+                    selected: _auto == AutoMode.social,
+                    onSelected: (_) => _setAuto(AutoMode.social),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Seçtiğim uygulamalar'),
+                    selected: _auto == AutoMode.apps,
+                    onSelected: (_) => _setAuto(AutoMode.apps),
+                  ),
+                ],
+              ),
+              if (_auto == AutoMode.social)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Instagram, X, TikTok, Facebook, WhatsApp, Snapchat, Reddit…',
+                      style: TextStyle(color: muted, fontSize: 12)),
+                ),
+              if (_auto == AutoMode.apps)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(_apps.isEmpty
+                      ? 'Uygulama seç'
+                      : _apps.map((p) => _appLabels[p] ?? p).join(', ')),
+                  trailing: const Icon(Icons.edit_rounded, size: 18),
+                  onTap: _pickApps,
+                ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
@@ -297,6 +435,80 @@ class _TrackerSetupSheetState extends State<_TrackerSetupSheet> {
               onPressed: _save,
               icon: Text(_emoji, style: const TextStyle(fontSize: 18)),
               label: Text(_isNew ? 'Takibe başla' : 'Kaydet'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Birden fazla uygulama seçilen arama listesi. Seçilen paket adlarını döner.
+class _MultiAppPicker extends StatefulWidget {
+  const _MultiAppPicker({required this.apps, required this.selected});
+
+  final List<({String package, String label})> apps;
+  final List<String> selected;
+
+  @override
+  State<_MultiAppPicker> createState() => _MultiAppPickerState();
+}
+
+class _MultiAppPickerState extends State<_MultiAppPicker> {
+  late final Set<String> _sel = {...widget.selected};
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.toLowerCase();
+    final list = [
+      for (final a in widget.apps)
+        if (q.isEmpty || a.label.toLowerCase().contains(q) || a.package.contains(q)) a,
+    ]..sort((a, b) {
+        final sa = _sel.contains(a.package) ? 0 : 1;
+        final sb = _sel.contains(b.package) ? 0 : 1;
+        return sa != sb ? sa - sb : a.label.toLowerCase().compareTo(b.label.toLowerCase());
+      });
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: TextField(
+                onChanged: (v) => setState(() => _q = v),
+                decoration: const InputDecoration(
+                  hintText: 'Uygulama ara (örn. instagram)',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+              ),
+            ),
+            Expanded(
+              child: list.isEmpty
+                  ? const Center(child: Text('Uygulama bulunamadı'))
+                  : ListView.builder(
+                      itemCount: list.length,
+                      itemBuilder: (_, i) {
+                        final a = list[i];
+                        return CheckboxListTile(
+                          value: _sel.contains(a.package),
+                          title: Text(a.label),
+                          subtitle: Text(a.package, style: const TextStyle(fontSize: 11)),
+                          onChanged: (v) => setState(
+                              () => v == true ? _sel.add(a.package) : _sel.remove(a.package)),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: FilledButton(
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                onPressed: () => Navigator.pop(context, _sel.toList()),
+                child: Text(_sel.isEmpty ? 'Tamam' : 'Tamam · ${_sel.length} uygulama'),
+              ),
             ),
           ],
         ),

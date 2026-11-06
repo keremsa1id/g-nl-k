@@ -130,6 +130,24 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(null)
                     }
                     "apps" -> result.success(launchableApps())
+                    "sessions" -> {
+                        val start = call.argument<Number>("start")!!.toLong()
+                        val end = call.argument<Number>("end")!!.toLong()
+                        Thread {
+                            val data = try {
+                                querySessions(start, end)
+                            } catch (e: Exception) {
+                                null
+                            }
+                            runOnUiThread {
+                                if (data == null) {
+                                    result.error("sessions", "Kullanım verisi okunamadı", null)
+                                } else {
+                                    result.success(data)
+                                }
+                            }
+                        }.start()
+                    }
                     "query" -> {
                         val start = call.argument<Number>("start")!!.toLong()
                         val end = call.argument<Number>("end")!!.toLong()
@@ -188,6 +206,70 @@ class MainActivity : FlutterFragmentActivity() {
         } catch (e: ActivityNotFoundException) {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
+    }
+
+    /**
+     * [start, end) aralığındaki uygulama oturumları: her açılış (giriş anı) ve çıkış anı.
+     * Aynı uygulamanın etkinlikleri arası geçişler (<15 sn) tek oturum sayılır.
+     */
+    private fun querySessions(start: Long, end: Long): List<Map<String, Any>> {
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val events = usm.queryEvents(start, end)
+        val gapMs = 15_000L
+        val openStart = HashMap<String, Long>() // paket -> oturum başlangıcı
+        val lastPause = HashMap<String, Long>() // paket -> son çıkış
+        val active = HashSet<String>() // şu an ön planda olan "paket/aktivite"
+        val out = ArrayList<Map<String, Any>>()
+        val e = UsageEvents.Event()
+
+        val pm = packageManager
+        fun categoryOf(pkg: String): Int {
+            return try {
+                val info = pm.getApplicationInfo(pkg, 0)
+                var c = -1
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) c = info.category
+                if ((info.flags and ApplicationInfo.FLAG_IS_GAME) != 0) c = 0
+                c
+            } catch (ex: PackageManager.NameNotFoundException) {
+                -1
+            }
+        }
+
+        fun close(pkg: String) {
+            val s = openStart.remove(pkg) ?: return
+            val x = lastPause[pkg] ?: return
+            if (x >= s) {
+                out.add(mapOf("package" to pkg, "start" to s, "end" to x, "category" to categoryOf(pkg)))
+            }
+        }
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            val pkg = e.packageName ?: continue
+            val key = pkg + "/" + (e.className ?: "")
+            when (e.eventType) {
+                1 -> {
+                    active.add(key)
+                    val last = lastPause[pkg]
+                    if (openStart.containsKey(pkg) && last != null && e.timeStamp - last > gapMs) {
+                        close(pkg)
+                    }
+                    if (!openStart.containsKey(pkg)) openStart[pkg] = e.timeStamp
+                }
+                2 -> {
+                    active.remove(key)
+                    if (openStart.containsKey(pkg)) lastPause[pkg] = e.timeStamp
+                }
+            }
+        }
+        val now = minOf(end, System.currentTimeMillis())
+        for (pkg in openStart.keys.toList()) {
+            // Hâlâ açıksa çıkış anı şimdi.
+            if (active.any { it.startsWith("$pkg/") }) lastPause[pkg] = now
+            close(pkg)
+        }
+        out.sortBy { it["start"] as Long }
+        return out
     }
 
     /** [start, end) aralığında her uygulamanın ön planda kaldığı süre ve açılma sayısı. */
