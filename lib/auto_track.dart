@@ -67,7 +67,7 @@ class AutoTrack {
 
   static bool _matches(Tracker t, AppSession s) => switch (t.autoMode) {
         AutoMode.off => false,
-        AutoMode.social => s.group == AppGroup.social,
+        AutoMode.group => s.group == t.autoGroup,
         AutoMode.apps => t.autoApps.contains(s.package),
       };
 }

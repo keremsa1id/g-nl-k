@@ -1,4 +1,5 @@
 import 'models.dart';
+import 'screen_time.dart' show AppGroup;
 
 /// Bırakılmak / azaltılmak istenen bir alışkanlığın takibi (sigara, alkol, gazlı içecek…).
 class Tracker {
@@ -15,6 +16,7 @@ class Tracker {
     List<PackPurchase>? packs,
     this.quitStart,
     this.autoMode = AutoMode.off,
+    this.autoGroup = AppGroup.social,
     List<String>? autoApps,
     this.autoSync,
     this.autoExit,
@@ -37,6 +39,7 @@ class Tracker {
 
   /// Telefondaki uygulama kullanımından otomatik kayıt: her girişte bir kayıt eklenir.
   AutoMode autoMode;
+  AppGroup autoGroup; // autoMode == group iken izlenen grup
   List<String> autoApps; // autoMode == apps iken izlenen paketler
   DateTime? autoSync; // otomatik algılamanın en son baktığı an
   DateTime? autoExit; // izlenen uygulamadan en son çıkış (sayaç buradan başlar)
@@ -69,6 +72,7 @@ class Tracker {
         'packs': packs.map((p) => p.toJson()).toList(),
         if (quitStart != null) 'quit': quitStart!.toIso8601String(),
         if (isAuto) 'auto': autoMode.name,
+        if (autoMode == AutoMode.group) 'autoGroup': autoGroup.name,
         if (autoApps.isNotEmpty) 'autoApps': autoApps,
         if (autoSync != null) 'autoSync': autoSync!.toIso8601String(),
         if (autoExit != null) 'autoExit': autoExit!.toIso8601String(),
@@ -92,16 +96,20 @@ class Tracker {
             .toList()
           ..sort((a, b) => a.time.compareTo(b.time)),
         quitStart: DateTime.tryParse((j['quit'] as String?) ?? ''),
-        autoMode: AutoMode.values.firstWhere((m) => m.name == j['auto'],
-            orElse: () => AutoMode.off),
+        autoMode: j['auto'] == 'social'
+            ? AutoMode.group // ilk sürümde kaydedilmiş sosyal medya modu
+            : AutoMode.values.firstWhere((m) => m.name == j['auto'],
+                orElse: () => AutoMode.off),
+        autoGroup: AppGroup.values.firstWhere((g) => g.name == j['autoGroup'],
+            orElse: () => AppGroup.social),
         autoApps: ((j['autoApps'] as List<dynamic>?) ?? []).cast<String>().toList(),
         autoSync: DateTime.tryParse((j['autoSync'] as String?) ?? ''),
         autoExit: DateTime.tryParse((j['autoExit'] as String?) ?? ''),
       );
 }
 
-/// Otomatik algılama: kapalı, tüm sosyal medya uygulamaları ya da seçilen uygulamalar.
-enum AutoMode { off, social, apps }
+/// Otomatik algılama: kapalı, bir uygulama grubu (sosyal medya, oyun…) ya da seçilen uygulamalar.
+enum AutoMode { off, group, apps }
 
 /// Hazır takip seçenekleri.
 class TrackerPreset {
@@ -127,8 +135,17 @@ class TrackerPreset {
         packPrice: packPrice,
       );
 
-  /// Sosyal medya takibi: uygulamalara girişler otomatik algılanır.
-  bool get autoSocial => name == 'Sosyal medya';
+  /// Hazır seçeneğin otomatik algılaması: sosyal medya ve oyun gruba, YouTube tek uygulamaya bağlı.
+  AutoMode get autoMode => switch (name) {
+        'Sosyal medya' || 'Oyun' => AutoMode.group,
+        'YouTube' => AutoMode.apps,
+        _ => AutoMode.off,
+      };
+
+  AppGroup get autoGroup => name == 'Oyun' ? AppGroup.game : AppGroup.social;
+
+  List<String> get autoApps =>
+      name == 'YouTube' ? const ['com.google.android.youtube'] : const [];
 }
 
 const trackerPresets = <TrackerPreset>[
@@ -139,6 +156,8 @@ const trackerPresets = <TrackerPreset>[
   TrackerPreset('Tatlı / şeker', '🍫', 'adet', 'Yedim', 'Adet', 1, 50),
   TrackerPreset('Fast food', '🍔', 'porsiyon', 'Yedim', 'Sipariş', 1, 300),
   TrackerPreset('Sosyal medya', '📱', 'kez', 'Girdim'),
+  TrackerPreset('YouTube', '▶️', 'kez', 'Girdim'),
+  TrackerPreset('Oyun', '🎮', 'kez', 'Oynadım'),
   TrackerPreset('Elektronik sigara', '💨', 'çekim', 'Kullandım', 'Kartuş', 1, 200),
 ];
 
